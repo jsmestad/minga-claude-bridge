@@ -733,6 +733,78 @@ defmodule MingaClaudeBridge.SessionTest do
     end
   end
 
+  describe "client control requests" do
+    defp control_answer(id, outcome) do
+      response =
+        case outcome do
+          {:ok, body} -> %{"subtype" => "success", "request_id" => id, "response" => body}
+          {:error, message} -> %{"subtype" => "error", "request_id" => id, "error" => message}
+        end
+
+      %{"type" => "control_response", "response" => response}
+    end
+
+    test "an idle session sends the request and returns the answer's response" do
+      ctx = ready()
+
+      task =
+        Task.async(fn ->
+          Session.control(
+            ctx.session,
+            %{"subtype" => "get_usage", "skip_behaviors" => true},
+            5_000
+          )
+        end)
+
+      assert %{
+               "type" => "control_request",
+               "request_id" => id,
+               "request" => %{"subtype" => "get_usage"}
+             } =
+               written(ctx)
+
+      push(ctx, control_answer(id, {:ok, %{"subscription_type" => "max"}}))
+      assert {:ok, %{"subscription_type" => "max"}} = Task.await(task)
+      assert Session.phase(ctx.session) == :idle
+    end
+
+    test "an error answer and a missing answer are errors" do
+      ctx = ready()
+
+      task =
+        Task.async(fn ->
+          Session.control(ctx.session, %{"subtype" => "set_model", "model" => "x"}, 5_000)
+        end)
+
+      %{"request_id" => id} = written(ctx)
+      push(ctx, control_answer(id, {:error, "unknown model"}))
+      assert {:error, {:control_error, "unknown model"}} = Task.await(task)
+
+      assert {:error, :timeout} = Session.control(ctx.session, %{"subtype" => "get_usage"}, 20)
+    end
+
+    test "a busy session rejects the request without writing it" do
+      ctx = ready()
+      _rref = prompt!(ctx)
+
+      assert {:error, {:invalid_phase, :streaming}} =
+               Session.control(ctx.session, %{"subtype" => "get_usage"}, 1_000)
+
+      refute_written(ctx)
+    end
+
+    test "a pending request fails when the session dies" do
+      ctx = ready()
+
+      task =
+        Task.async(fn -> Session.control(ctx.session, %{"subtype" => "get_usage"}, 5_000) end)
+
+      _request = written(ctx)
+      Scripted.exit(ctx.session, ctx.ref, 1)
+      assert {:error, {:claude_exited, 1}} = Task.await(task)
+    end
+  end
+
   describe "lifecycle" do
     test "await_ready answers when startup completes" do
       ctx = start_session()

@@ -132,12 +132,18 @@ defmodule MingaClaudeBridge.Route.Mapping do
 
   @doc "Converts a model entry of Claude Code's `initialize` answer to a route model."
   @spec model(map()) :: {:ok, Model.t()} | :error
-  def model(%{"value" => id} = entry) when is_binary(id) and id != "" do
+  def model(entry), do: model(entry, %{})
+
+  @doc """
+  Converts a model entry using measured context windows (model id to tokens, see `MingaClaudeBridge.Route.Probe.measure/3`). A model without a measurement gets #{200_000} tokens.
+  """
+  @spec model(map(), %{String.t() => pos_integer()}) :: {:ok, Model.t()} | :error
+  def model(%{"value" => id} = entry, windows) when is_binary(id) and id != "" do
     {:ok,
      %Model{
        id: id,
        display_name: display_name(entry, id),
-       context_window: @default_context_window,
+       context_window: Map.get(windows, id, @default_context_window),
        max_output: @default_max_output,
        reasoning_levels: reasoning_levels(entry),
        tools?: true,
@@ -149,7 +155,7 @@ defmodule MingaClaudeBridge.Route.Mapping do
      }}
   end
 
-  def model(_entry), do: :error
+  def model(_entry, _windows), do: :error
 
   @doc "The model list shown when Claude Code cannot be probed."
   @spec fallback_models() :: [Model.t()]

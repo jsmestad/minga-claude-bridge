@@ -3,13 +3,16 @@ defmodule MingaClaudeBridge.Status do
   Holds the route's last known readiness and plan limits, and reports changes to Minga.
 
     * Availability results are cached per credential for a short time, so opening `/model` repeatedly does not start Claude Code every time.
-    * Sessions send their `rate_limit_event`s here. A `rejected` status reports the route as `{:unavailable, :rate_limited, remedy}` with the reset time; the next allowed status reports it ready again with the last plan label. Minga's `Status` has no plan-usage field yet (jsmestad/minga-claude-bridge#4), so utilization stays here, available through `latest_rate_limit/1`.
+    * Sessions send their `rate_limit_event`s here. A `rejected` status reports the route as `{:unavailable, :rate_limited, remedy}` with the reset time; the next allowed status reports it ready again with the last plan label.
+    * Plan windows (`MingaAgent.InferenceRoute.PlanWindow`) come from `get_usage` answers (`put_usage/2`) and rate-limit events, merged by `MingaClaudeBridge.Route.PlanUsage`. Every change is reported with `Minga.Extension.ModelRoutes.report_usage/2`.
+    * The models and per-model context windows of the last probe feed `MingaClaudeBridge.Route.models/1`.
 
-  Reports go through the reporter `MingaClaudeBridge` received when it registered the route, using `Minga.Extension.ModelRoutes.report_status/2`. Both are options so tests can observe reports.
+  Reports go through the reporter `MingaClaudeBridge` received when it registered the route. The reporter and both report functions are options so tests can observe reports.
   """
 
   use GenServer
 
+  alias MingaClaudeBridge.Route.PlanUsage
   alias MingaClaudeBridge.Wire.RateLimit
 
   @reporter_key {MingaClaudeBridge, :reporter}
@@ -26,7 +29,7 @@ defmodule MingaClaudeBridge.Status do
   @doc """
   Starts the status server.
 
-  Options: `:name`, `:reporter` (defaults to the stored reporter), and `:report` (a two-argument function, defaults to `Minga.Extension.ModelRoutes.report_status/2`).
+  Options: `:name`, `:reporter` (defaults to the stored reporter), `:report` (a two-argument function, defaults to `Minga.Extension.ModelRoutes.report_status/2`), and `:report_usage` (a two-argument function, defaults to `Minga.Extension.ModelRoutes.report_usage/2`).
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -50,6 +53,23 @@ defmodule MingaClaudeBridge.Status do
   @spec put_models(GenServer.server(), [map()]) :: :ok
   def put_models(server, models) when is_list(models),
     do: call(server, {:put_models, models}, :ok)
+
+  @doc "Returns the context window in tokens per model id from the last probe. Empty before the first probe."
+  @spec context_windows(GenServer.server()) :: %{String.t() => pos_integer()}
+  def context_windows(server), do: call(server, :context_windows, %{})
+
+  @doc "Records the context windows a probe measured. Models it could not measure keep their earlier value."
+  @spec put_context_windows(GenServer.server(), %{String.t() => pos_integer()}) :: :ok
+  def put_context_windows(server, windows) when is_map(windows),
+    do: call(server, {:put_context_windows, windows}, :ok)
+
+  @doc "Records a `get_usage` answer: refreshes every plan window and reports them."
+  @spec put_usage(GenServer.server(), map()) :: :ok
+  def put_usage(server, answer) when is_map(answer), do: call(server, {:put_usage, answer}, :ok)
+
+  @doc "Returns the current plan windows in display order."
+  @spec plan_windows(GenServer.server()) :: [MingaAgent.InferenceRoute.PlanWindow.t()]
+  def plan_windows(server), do: call(server, :plan_windows, [])
 
   @doc "Returns the latest rate-limit event, or `nil`."
   @spec latest_rate_limit(GenServer.server()) :: RateLimit.t() | nil
@@ -88,7 +108,10 @@ defmodule MingaClaudeBridge.Status do
        label: nil,
        limited: false,
        rate_limit: nil,
-       models: nil
+       models: nil,
+       context_windows: %{},
+       windows: %{},
+       report_usage: Keyword.get(opts, :report_usage, &default_report_usage/2)
      }}
   end
 
@@ -123,6 +146,20 @@ defmodule MingaClaudeBridge.Status do
   def handle_call({:put_models, models}, _from, state),
     do: {:reply, :ok, %{state | models: models}}
 
+  def handle_call(:context_windows, _from, state), do: {:reply, state.context_windows, state}
+
+  def handle_call({:put_context_windows, windows}, _from, state),
+    do: {:reply, :ok, %{state | context_windows: Map.merge(state.context_windows, windows)}}
+
+  def handle_call({:put_usage, answer}, _from, state) do
+    state = %{state | windows: PlanUsage.from_get_usage(answer)}
+    report_windows(state)
+    {:reply, :ok, state}
+  end
+
+  def handle_call(:plan_windows, _from, state),
+    do: {:reply, PlanUsage.to_list(state.windows), state}
+
   @impl true
   def handle_cast({:rate_limit, rate_limit}, state), do: {:noreply, record(state, rate_limit)}
 
@@ -132,9 +169,18 @@ defmodule MingaClaudeBridge.Status do
 
   def handle_info(_other, state), do: {:noreply, state}
 
-  defp record(state, %RateLimit{status: :rejected} = rate_limit) do
-    state = %{state | rate_limit: rate_limit}
+  defp record(state, %RateLimit{} = rate_limit) do
+    state = %{
+      state
+      | rate_limit: rate_limit,
+        windows: PlanUsage.apply_rate_limit(state.windows, rate_limit)
+    }
 
+    if rate_limit.rate_limit_type != nil, do: report_windows(state)
+    availability(state, rate_limit)
+  end
+
+  defp availability(state, %RateLimit{status: :rejected} = rate_limit) do
     if state.limited do
       state
     else
@@ -143,15 +189,29 @@ defmodule MingaClaudeBridge.Status do
     end
   end
 
-  defp record(state, %RateLimit{} = rate_limit) do
-    state = %{state | rate_limit: rate_limit}
-
+  defp availability(state, %RateLimit{}) do
     if state.limited do
       report(state, {:ready, state.label || "Claude Code"})
       %{state | limited: false, cache: %{}}
     else
       state
     end
+  end
+
+  defp report_windows(%{reporter: nil}), do: :ok
+  defp report_windows(%{windows: windows}) when map_size(windows) == 0, do: :ok
+
+  defp report_windows(%{reporter: reporter, report_usage: report_usage, windows: windows}) do
+    report_usage.(reporter, PlanUsage.to_list(windows))
+  rescue
+    _error -> :ok
+  end
+
+  defp default_report_usage(reporter, windows) do
+    module = Minga.Extension.ModelRoutes
+
+    if Code.ensure_loaded?(module) and function_exported?(module, :report_usage, 2),
+      do: module.report_usage(reporter, windows)
   end
 
   defp report(%{reporter: nil}, _availability), do: :ok

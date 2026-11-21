@@ -23,7 +23,10 @@ defmodule MingaClaudeBridge.RouteTest do
       start_supervised!(
         {Status,
          reporter: :reporter,
-         report: fn reporter, availability -> send(test, {:reported, reporter, availability}) end}
+         report: fn reporter, availability -> send(test, {:reported, reporter, availability}) end,
+         report_usage: fn reporter, windows ->
+           send(test, {:reported_usage, reporter, windows})
+         end}
       )
 
     config =
@@ -205,9 +208,14 @@ defmodule MingaClaudeBridge.RouteTest do
   defp push(%{ref: ref, session: session}, frames),
     do: Enum.each(List.wrap(frames), &Scripted.push(session, ref, &1))
 
-  defp written(%{ref: ref}) do
+  # The next written line, skipping the get_usage refresh a completed turn sends in the background.
+  defp written(%{ref: ref} = cc) do
     assert_receive {:scripted_line, ^ref, line}
-    JSON.decode!(line)
+
+    case JSON.decode!(line) do
+      %{"type" => "control_request", "request" => %{"subtype" => "get_usage"}} -> written(cc)
+      frame -> frame
+    end
   end
 
   defp user_text(line), do: line["message"]["content"] |> Enum.map_join(& &1["text"])
@@ -418,6 +426,46 @@ defmodule MingaClaudeBridge.RouteTest do
       _response = Route.stream(request(messages), config)
       fresh = started()
       assert fresh.session != old.session
+    end
+  end
+
+  describe "plan usage" do
+    test "a completed turn refreshes plan usage with get_usage on the idle session",
+         %{config: config} do
+      {[{:text, "Hi"}, _usage, {:finish, :stop}], cc, _line} =
+        first_turn(config, [user("hello")], text_reply("Hi"))
+
+      ref = cc.ref
+      assert_receive {:scripted_line, ^ref, line}
+
+      assert %{
+               "request_id" => id,
+               "request" => %{"subtype" => "get_usage", "skip_behaviors" => true}
+             } =
+               JSON.decode!(line)
+
+      push(cc, %{
+        "type" => "control_response",
+        "response" => %{
+          "subtype" => "success",
+          "request_id" => id,
+          "response" => %{
+            "subscription_type" => "max",
+            "rate_limits" => %{
+              "five_hour" => %{"utilization" => 42, "resets_at" => nil, "locked_reason" => nil}
+            }
+          }
+        }
+      })
+
+      assert_receive {:reported_usage, :reporter,
+                      [%{kind: "five_hour", utilization: 0.42, status: :allowed}]}
+    end
+
+    test "a turn that ends with tool calls does not refresh usage", %{config: config} do
+      {_events, cc, _line} = first_turn(config, [user("read it")], tool_reply("t1"))
+      ref = cc.ref
+      refute_receive {:scripted_line, ^ref, _line}, 100
     end
   end
 

@@ -14,7 +14,7 @@ defmodule MingaClaudeBridge.Route do
     * The request adds only user messages, and the session is idle: they are sent as the next prompt.
     * Anything else (a new conversation, an edit, branch, reset, compaction, a changed system prompt, tool set, model, or effort, a dead session, or a mix of tool results and user input): the old session stops and a fresh one starts. Earlier history is imported as one transcript text block in front of the newest input. This import is lossy; see `MingaClaudeBridge.Route.Mapping`. Importing a Claude Code session file for `--resume` is a follow-up.
 
-  After a turn finishes without an error, the session records the request's history plus the reply in the same normalized form Minga sends next time.
+  After a turn finishes without an error, the session records the request's history plus the reply in the same normalized form Minga sends next time. A turn that ends with Claude Code's `result` also refreshes plan usage with `get_usage` on the now idle session.
 
   `:summary` and `:title` requests, and turns without a conversation id, run in an isolated session with no tools and no session persistence. It stops when the stream ends, is cancelled, or its consumer exits.
 
@@ -43,8 +43,11 @@ defmodule MingaClaudeBridge.Route do
     # Never start Claude Code here: Minga lists models during registration.
     # Availability probes record the real list.
     case Status.models(config.status) do
-      [_ | _] = entries -> entries |> to_models() |> with_fallback()
-      _none -> Mapping.fallback_models()
+      [_ | _] = entries ->
+        entries |> to_models(Status.context_windows(config.status)) |> with_fallback()
+
+      _none ->
+        Mapping.fallback_models()
     end
   end
 
@@ -201,10 +204,10 @@ defmodule MingaClaudeBridge.Route do
   defp probe_availability(config, env) do
     case Probe.run(config, env) do
       {:ok, %{account: account} = info} ->
-        Status.put_models(config.status, info.models)
+        record_probe(config, info)
 
         if Probe.signed_in?(account),
-          do: {:ready, Probe.plan_label(account)},
+          do: {:ready, Probe.plan_label(account, Map.get(info, :usage))},
           else: {:unavailable, :not_signed_in, @sign_in_remedy}
 
       {:error, reason} ->
@@ -409,6 +412,7 @@ defmodule MingaClaudeBridge.Route do
         reason = finish_reason(reason, config)
 
         if record, do: record.(session, outcome(reason, acc))
+        if record && reason in [:stop, :length, :refusal], do: refresh_usage(config, session)
 
         {[{:finish, reason}], %{acc | done: true}}
 
@@ -480,10 +484,31 @@ defmodule MingaClaudeBridge.Route do
   defp credential_env(%{env: env}) when is_map(env), do: env
   defp credential_env(_none), do: %{}
 
-  defp to_models(entries) do
+  # A turn that reached Claude Code's `result` leaves the session idle, so it can answer `get_usage`.
+  # The refresh runs beside the stream: a failure or a busy session only skips this update.
+  defp refresh_usage(config, session) do
+    Task.start(fn ->
+      case Session.control(session, %{"subtype" => "get_usage", "skip_behaviors" => true}, 5_000) do
+        {:ok, usage} -> Status.put_usage(config.status, usage)
+        {:error, _reason} -> :ok
+      end
+    end)
+  end
+
+  defp record_probe(config, info) do
+    Status.put_models(config.status, info.models)
+    Status.put_context_windows(config.status, Map.get(info, :context_windows, %{}))
+
+    case Map.get(info, :usage) do
+      %{} = usage -> Status.put_usage(config.status, usage)
+      nil -> :ok
+    end
+  end
+
+  defp to_models(entries, windows) do
     entries
     |> Enum.flat_map(fn entry ->
-      case Mapping.model(entry) do
+      case Mapping.model(entry, windows) do
         {:ok, model} -> [model]
         :error -> []
       end

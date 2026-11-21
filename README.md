@@ -26,9 +26,9 @@ If something is missing, the `/model` row says what to do: install Claude Code, 
 
 ## Models and effort
 
-The model list comes from Claude Code itself, so it matches what your plan offers. Registering the route never waits for Claude Code: until the bridge has checked Claude Code once (when `/model` checks the route's readiness), and Minga refreshes the route's models, the list shows the `opus`, `sonnet`, and `haiku` aliases.
+The model list comes from Claude Code itself, so it matches what your plan offers. Each model's context window is the one Claude Code reports for your plan, for example 1M tokens where your plan has it. Registering the route never waits for Claude Code: until the bridge has checked Claude Code once (when `/model` checks the route's readiness), and Minga refreshes the route's models, the list shows the `opus`, `sonnet`, and `haiku` aliases with a 200k window.
 
-The thinking level you pick in Minga becomes Claude Code's `--effort`: `low`, `medium`, `high`, `xhigh`, or `max`. Models without effort support show a single `default` level.
+The thinking level you pick in Minga becomes Claude Code's `--effort`: `low`, `medium`, `high`, `xhigh`, or `max`, with adaptive thinking, so the model decides how much to think. Its thinking streams into Minga as summarized text. Models without effort support show a single `default` level.
 
 ## How a conversation maps to Claude Code
 
@@ -40,7 +40,7 @@ Stopping a turn keeps the partial reply and ends that Claude Code process at onc
 
 ## Limits
 
-Requests through the bridge count against your Claude plan, exactly like using Claude Code yourself. When you reach a plan limit, the turn fails with "Your Claude plan limit is reached. It resets at …", and `/model` shows the route as unavailable until that reset time.
+Requests through the bridge count against your Claude plan, exactly like using Claude Code yourself. Minga shows how much of your plan's five-hour and seven-day windows you have used, as Claude Code reports it: when `/model` checks the route, and after each reply. When you reach a plan limit, the turn fails with "Your Claude plan limit is reached. It resets at …", and `/model` shows the route as unavailable until that reset time.
 
 ## What the bridge turns off in Claude Code
 

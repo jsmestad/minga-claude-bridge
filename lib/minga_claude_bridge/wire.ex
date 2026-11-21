@@ -158,6 +158,14 @@ defmodule MingaClaudeBridge.Wire do
     control_request(request_id, request)
   end
 
+  @doc """
+  Encodes a client-initiated control request, for example `%{"subtype" => "get_usage", "skip_behaviors" => true}`. `request` must hold a string `"subtype"`.
+  """
+  @spec control(String.t(), map()) :: line()
+  def control(request_id, %{"subtype" => subtype} = request)
+      when is_binary(request_id) and is_binary(subtype),
+      do: control_request(request_id, request)
+
   @doc "Encodes the `interrupt` control request, which stops the current turn."
   @spec interrupt(String.t()) :: line()
   def interrupt(request_id) when is_binary(request_id),

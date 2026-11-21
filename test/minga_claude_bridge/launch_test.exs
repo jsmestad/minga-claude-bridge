@@ -40,10 +40,18 @@ defmodule MingaClaudeBridge.LaunchTest do
                "sonnet",
                "--effort",
                "high",
+               "--thinking=adaptive",
                "--resume",
                "9b2c7f1e",
                "--no-session-persistence"
              ]
+  end
+
+  test "adaptive thinking comes only with an effort" do
+    {:ok, plain} = Launch.argv(model: "sonnet")
+    refute "--thinking=adaptive" in plain
+    {:ok, with_effort} = Launch.argv(effort: "low")
+    assert Enum.take(with_effort, -3) == ["--effort", "low", "--thinking=adaptive"]
   end
 
   test "rejects values that would read as flags or are not valid" do

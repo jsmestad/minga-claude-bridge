@@ -16,7 +16,18 @@ defmodule MingaClaudeBridge.RoutePortTest do
     fake = Path.join(dir, "claude")
     File.cp!(@fake, fake)
     File.chmod!(fake, 0o755)
-    status = start_supervised!({Status, reporter: nil})
+    test = self()
+
+    status =
+      start_supervised!(
+        {Status,
+         reporter: :reporter,
+         report: fn _reporter, _availability -> :ok end,
+         report_usage: fn reporter, windows ->
+           send(test, {:reported_usage, reporter, windows})
+         end}
+      )
+
     %{fake: fake, base: Path.join(dir, "base"), status: status, dir: dir}
   end
 
@@ -95,7 +106,7 @@ defmodule MingaClaudeBridge.RoutePortTest do
     end
   end
 
-  test "models/1 lists the models from the last availability probe", ctx do
+  test "models/1 lists the models and context windows from the last availability probe", ctx do
     assert {:ready, _label} = Route.availability("claude_bridge", nil, config(ctx, %{}))
     models = Route.models(status: ctx.status)
 
@@ -103,9 +114,55 @@ defmodule MingaClaudeBridge.RoutePortTest do
              %{
                id: "haiku",
                display_name: "Haiku 5.5",
-               reasoning_levels: ["low", "medium", "high", "xhigh", "max"]
+               reasoning_levels: ["low", "medium", "high", "xhigh", "max"],
+               context_window: 1_000_000
              },
-             %{id: "claude-haiku-4-5", reasoning_levels: ["default"]}
+             %{id: "claude-haiku-4-5", reasoning_levels: ["default"], context_window: 200_000}
            ] = models
+  end
+
+  test "the probe reports plan usage windows with their status", ctx do
+    rate_limits =
+      JSON.encode!(%{
+        "five_hour" => %{
+          "utilization" => 79,
+          "resets_at" => "2026-11-21T20:00:00+00:00",
+          "locked_reason" => nil
+        },
+        "seven_day" => %{"utilization" => 80, "resets_at" => nil, "locked_reason" => nil},
+        "seven_day_sonnet" => %{"utilization" => 100, "resets_at" => nil, "locked_reason" => nil},
+        "seven_day_opus" => %{
+          "utilization" => 5,
+          "resets_at" => nil,
+          "locked_reason" => "org_limit"
+        },
+        "seven_day_oauth_apps" => nil
+      })
+
+    assert {:ready, "Claude Pro"} =
+             Route.availability(
+               "claude_bridge",
+               nil,
+               config(ctx, %{"FAKE_CLAUDE_RATE_LIMITS" => rate_limits})
+             )
+
+    assert_receive {:reported_usage, :reporter, windows}
+
+    assert Enum.map(windows, &{&1.kind, &1.utilization, &1.status}) == [
+             {"five_hour", 0.79, :allowed},
+             {"seven_day", 0.8, :warning},
+             {"seven_day_opus", 0.05, :rejected},
+             {"seven_day_sonnet", 1.0, :rejected}
+           ]
+  end
+
+  test "a Claude Code that never answers the measurements keeps defaults and readiness", ctx do
+    config = %{config(ctx, %{"FAKE_CLAUDE_CONTROL" => "ignore"}) | measure_timeout: 300}
+    started = System.monotonic_time(:millisecond)
+
+    assert {:ready, "Claude Pro"} = Route.availability("claude_bridge", nil, config)
+    assert System.monotonic_time(:millisecond) - started < 3_000
+    refute_received {:reported_usage, _reporter, _windows}
+    assert Enum.all?(Route.models(status: ctx.status), &(&1.context_window == 200_000))
   end
 end

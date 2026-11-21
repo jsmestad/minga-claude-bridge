@@ -14,6 +14,8 @@
 #   FAKE_CLAUDE_BIG=N              stream one text delta of N bytes
 #   FAKE_CLAUDE_IGNORE_TERM=1      ignore SIGTERM and keep running after stdin closes
 #   FAKE_CLAUDE_VERSION=v          claude_code_version in the initialize answer (default 2.1.330)
+#   FAKE_CLAUDE_CONTROL=ignore     never answer set_model, get_context_usage, or get_usage (they answer with the 2.1.330 shapes otherwise)
+#   FAKE_CLAUDE_RATE_LIMITS=json   the rate_limits object of the get_usage answer
 #   FAKE_CLAUDE_SIGNED_OUT=1       report the signed-out account Claude Code 2.1.330 sends ({"tokenSource":"none"})
 #
 # `fake_claude --version` prints a version line and exits.
@@ -69,6 +71,24 @@ turn() {
 
 bridge_init=""
 mcp_ready=""
+model="default"
+
+request_id() { printf '%s' "$1" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p'; }
+
+control_success() {
+  emit '{"type":"control_response","response":{"subtype":"success","request_id":"'"$1"'","response":'"$2"'}}'
+}
+
+# Context windows as Claude Code 2.1.330 reports them: haiku has a 1M window, the default model 200k.
+window() {
+  case "$1" in
+    haiku | *haiku-5*) echo 1000000 ;;
+    *) echo 200000 ;;
+  esac
+}
+
+default_rate_limits='{"five_hour":{"utilization":21,"resets_at":"2026-11-21T20:00:00.000000+00:00","locked_reason":null,"limit_dollars":null},"seven_day":{"utilization":80,"resets_at":"2026-11-25T08:00:00+00:00","locked_reason":null},"seven_day_opus":null,"seven_day_sonnet":{"utilization":100,"resets_at":null,"locked_reason":null},"seven_day_breakdown":{"as_of":"x","rows":[]},"extra_usage":{"is_enabled":false}}'
+
 
 ready() {
   if [ -n "$bridge_init" ] && [ -n "$mcp_ready" ] && [ "$bridge_init" != "done" ]; then
@@ -92,6 +112,22 @@ while IFS= read -r line; do
     *'"type":"control_response"'*'"request_id":"mcp-1"'* | *'"request_id":"mcp-1"'*'"type":"control_response"'*)
       mcp_ready=1
       ready
+      ;;
+    *'"type":"control_request"'*'"subtype":"set_model"'* | *'"subtype":"set_model"'*'"type":"control_request"'*)
+      if [ "$FAKE_CLAUDE_CONTROL" != "ignore" ]; then
+        model=$(printf '%s' "$line" | sed -n 's/.*"model":"\([^"]*\)".*/\1/p')
+        control_success "$(request_id "$line")" '{"model":"claude-'"$model"'-resolved"}'
+      fi
+      ;;
+    *'"type":"control_request"'*'"subtype":"get_context_usage"'* | *'"subtype":"get_context_usage"'*'"type":"control_request"'*)
+      if [ "$FAKE_CLAUDE_CONTROL" != "ignore" ]; then
+        control_success "$(request_id "$line")" '{"model":"claude-'"$model"'","totalTokens":1200,"maxTokens":'"$(window "$model")"',"rawMaxTokens":'"$(window "$model")"',"percentage":0,"autoCompactThreshold":null,"isAutoCompactEnabled":false,"categories":[]}'
+      fi
+      ;;
+    *'"type":"control_request"'*'"subtype":"get_usage"'* | *'"subtype":"get_usage"'*'"type":"control_request"'*)
+      if [ "$FAKE_CLAUDE_CONTROL" != "ignore" ]; then
+        control_success "$(request_id "$line")" '{"session":{"total_cost_usd":0},"subscription_type":"max","rate_limits_available":true,"rate_limits":'"${FAKE_CLAUDE_RATE_LIMITS:-$default_rate_limits}"'}'
+      fi
       ;;
     *'"type":"control_request"'*'"subtype":"initialize"'* | *'"subtype":"initialize"'*'"type":"control_request"'*)
       bridge_init=$(printf '%s' "$line" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
