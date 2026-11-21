@@ -24,4 +24,4 @@ Requires Minga with model routes and plan usage (jsmestad/minga#3734 and #3756),
 - The usage refresh after a turn now runs under the bridge's task supervisor and stops with the extension.
 - A plan label learned from usage now only updates the readiness of the credential it was read with.
 
-[0.1.0]: https://github.com/jsmestad/minga-claude-bridge/releases/tag/v0.1.0
+[0.1.0]: https://hex.pm/packages/minga_claude_bridge/0.1.0
