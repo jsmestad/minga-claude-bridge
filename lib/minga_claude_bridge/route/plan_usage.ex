@@ -5,7 +5,7 @@ defmodule MingaClaudeBridge.Route.PlanUsage do
   Two sources describe the same windows:
 
     * The `get_usage` control request answers with `rate_limits`, where each window (`five_hour`, `seven_day`, and `seven_day_*` variants such as `seven_day_opus`) is either `null` or an object with `utilization` as a percent from 0 to 100, `resets_at` as an ISO 8601 string, and `locked_reason`. `from_get_usage/1` reads every non-null window. Its status is `:rejected` when `locked_reason` is set or utilization reaches 100%, `:warning` from 80%, and `:allowed` below.
-    * A `rate_limit_event` during a turn reports one window's status and reset time. `apply_rate_limit/2` updates that window's status and reset time and keeps its last known utilization.
+    * A `rate_limit_event` during a turn reports one window's status and reset time, and sometimes its utilization. `apply_rate_limit/2` updates that window's status and reset time, takes the event's utilization when present (a fraction from 0 to 1, or a percent when above 1), and otherwise keeps the last known utilization.
 
   The latest source wins for the fields it carries. `get_usage` refreshes every window; a `rate_limit_event` refreshes one window's status. Account data never passes through this module.
   """
@@ -56,7 +56,7 @@ defmodule MingaClaudeBridge.Route.PlanUsage do
 
     window = %PlanWindow{
       kind: kind,
-      utilization: event_utilization(previous, status),
+      utilization: event_utilization(event.utilization, previous, status),
       resets_at: event_resets_at(event.resets_at, previous),
       status: status
     }
@@ -101,9 +101,18 @@ defmodule MingaClaudeBridge.Route.PlanUsage do
   defp event_status({:other, _status}, %PlanWindow{status: status}), do: status
   defp event_status({:other, _status}, nil), do: :allowed
 
-  defp event_utilization(%PlanWindow{utilization: utilization}, _status), do: utilization
-  defp event_utilization(nil, :rejected), do: 1.0
-  defp event_utilization(nil, _status), do: 0.0
+  # The SDK does not state the scale of `rate_limit_info.utilization`. Claude Code builds it from
+  # the API's unified rate-limit headers, which carry a 0..1 fraction, while `get_usage` reports
+  # a 0..100 percent. A value above 1 is therefore read as a percent; anything else as a fraction.
+  defp event_utilization(value, _previous, _status) when is_number(value) and value > 1,
+    do: min(value, 100) / 100
+
+  defp event_utilization(value, _previous, _status) when is_number(value) and value >= 0,
+    do: value / 1
+
+  defp event_utilization(_none, %PlanWindow{utilization: utilization}, _status), do: utilization
+  defp event_utilization(_none, nil, :rejected), do: 1.0
+  defp event_utilization(_none, nil, _status), do: 0.0
 
   defp event_resets_at(seconds, _previous) when is_number(seconds) do
     case DateTime.from_unix(trunc(seconds)) do

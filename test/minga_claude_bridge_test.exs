@@ -8,6 +8,14 @@ defmodule MingaClaudeBridgeTest do
       send(Application.get_env(:minga_claude_bridge, :fake_routes_observer), {:registered, attrs})
       {:ok, :fake_reporter}
     end
+
+    def report_usage(_reporter, _windows, _opts \\ []), do: :ok
+  end
+
+  defmodule RoutesWithoutUsage do
+    @moduledoc false
+    # A Minga with model routes (#3734) but before plan usage (#3756).
+    def register(_attrs, _opts), do: {:ok, :fake_reporter}
   end
 
   setup do
@@ -39,7 +47,15 @@ defmodule MingaClaudeBridgeTest do
   test "init fails with a clear message when Minga has no model routes" do
     Application.put_env(:minga_claude_bridge, :model_routes, Module.concat([NoSuch, ModelRoutes]))
     assert {:error, message} = MingaClaudeBridge.init([])
-    assert message =~ "jsmestad/minga#3734"
+
+    assert message ==
+             "minga_claude_bridge needs Minga with model routes and plan usage (jsmestad/minga#3734, #3756)"
+  end
+
+  test "init fails with the same message on a Minga with model routes but no plan usage" do
+    Application.put_env(:minga_claude_bridge, :model_routes, RoutesWithoutUsage)
+    assert {:error, message} = MingaClaudeBridge.init([])
+    assert message =~ "#3756"
   end
 
   test "the child tree stops its sessions on shutdown" do

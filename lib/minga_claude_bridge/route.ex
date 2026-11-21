@@ -153,7 +153,7 @@ defmodule MingaClaudeBridge.Route do
           MingaAgent.InferenceRoute.availability()
   def availability(_route_id, credential, %Config{} = config) do
     env = credential_env(credential)
-    key = :erlang.phash2(env)
+    key = credential_key(env)
 
     case limited(config) do
       {:unavailable, _kind, _remedy} = limited -> limited
@@ -203,7 +203,7 @@ defmodule MingaClaudeBridge.Route do
         model_ids = for %{"value" => id} <- info.models, is_binary(id), do: id
         # Usage first and reported at once: it changes between checks, the windows rarely do.
         usage = Probe.usage(session, deadline)
-        if usage, do: Status.put_usage(config.status, usage)
+        if usage, do: Status.put_usage(config.status, key, usage)
 
         stale = Status.stale_models(config.status, key, model_ids, config.window_ttl)
         windows = Probe.context_windows(session, stale, deadline)
@@ -235,7 +235,9 @@ defmodule MingaClaudeBridge.Route do
         Status.put_models(config.status, info.models)
 
         if Probe.signed_in?(account),
-          do: {:ready, Probe.plan_label(account, Status.usage_label(config.status))},
+          do:
+            {:ready,
+             Probe.plan_label(account, Status.usage_label(config.status, credential_key(env)))},
           else: {:unavailable, :not_signed_in, @sign_in_remedy}
 
       {:error, reason} ->
@@ -280,8 +282,10 @@ defmodule MingaClaudeBridge.Route do
 
     # Claude Code keeps every prompt it received, even in a failed or stopped turn.
     # So anything but a success makes the next request start fresh.
+    key = credential_key(credential_env(request.credential))
+
     record = fn
-      session, {:completed, text, calls} ->
+      session, {:completed, text, calls, reason} ->
         entries = history_request.entries ++ [Mapping.assistant_entry(text, calls)]
 
         history =
@@ -291,6 +295,9 @@ defmodule MingaClaudeBridge.Route do
           })
 
         remember(session, history)
+
+        # A turn that reached Claude Code's `result` leaves the session idle for `get_usage`.
+        if reason in [:stop, :length, :refusal], do: refresh_usage(config, session, key)
 
       session, :failed ->
         remember(session, History.new())
@@ -440,7 +447,6 @@ defmodule MingaClaudeBridge.Route do
         reason = finish_reason(reason, config)
 
         if record, do: record.(session, outcome(reason, acc))
-        if record && reason in [:stop, :length, :refusal], do: refresh_usage(config, session)
 
         {[{:finish, reason}], %{acc | done: true}}
 
@@ -460,8 +466,8 @@ defmodule MingaClaudeBridge.Route do
 
   defp outcome({:error, _reason}, _acc), do: :failed
 
-  defp outcome(_reason, acc),
-    do: {:completed, IO.iodata_to_binary(acc.text), Enum.reverse(acc.calls)}
+  defp outcome(reason, acc),
+    do: {:completed, IO.iodata_to_binary(acc.text), Enum.reverse(acc.calls), reason}
 
   defp finish_reason({:error, {:claude_error, _subtype, text}} = error, config)
        when is_binary(text) do
@@ -512,16 +518,23 @@ defmodule MingaClaudeBridge.Route do
   defp credential_env(%{env: env}) when is_map(env), do: env
   defp credential_env(_none), do: %{}
 
-  # A turn that reached Claude Code's `result` leaves the session idle, so it can answer `get_usage`.
-  # The refresh runs beside the stream: a failure or a busy session only skips this update.
-  defp refresh_usage(config, session) do
-    Task.start(fn ->
+  # The refresh runs beside the stream, under the bridge's task supervisor: a failure or a busy
+  # session only skips this update.
+  defp refresh_usage(config, session, key) do
+    Task.Supervisor.start_child(config.tasks, fn ->
       case Session.control(session, %{"subtype" => "get_usage", "skip_behaviors" => true}, 5_000) do
-        {:ok, usage} -> Status.put_usage(config.status, usage)
+        {:ok, usage} -> Status.put_usage(config.status, key, usage)
         {:error, _reason} -> :ok
       end
     end)
+  catch
+    # The task supervisor is gone when the extension is stopping; skip this refresh.
+    :exit, _reason -> :ok
   end
+
+  @doc false
+  @spec credential_key(%{optional(String.t()) => String.t()}) :: non_neg_integer()
+  def credential_key(env), do: :erlang.phash2(env)
 
   defp to_models(entries, windows) do
     entries

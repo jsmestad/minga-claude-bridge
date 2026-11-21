@@ -76,13 +76,18 @@ defmodule MingaClaudeBridge.Status do
   def start_measurement(server, key, fun) when is_function(fun, 0),
     do: call(server, {:start_measurement, key, fun}, :unavailable)
 
-  @doc "Returns the plan label of the last `get_usage` answer, for example \"Claude Max\", or `nil`."
-  @spec usage_label(GenServer.server()) :: String.t() | nil
-  def usage_label(server), do: call(server, :usage_label, nil)
+  @doc "Returns the plan label of the last `get_usage` answer for credential `key`, for example \"Claude Max\", or `nil`."
+  @spec usage_label(GenServer.server(), term()) :: String.t() | nil
+  def usage_label(server, key), do: call(server, {:usage_label, key}, nil)
 
-  @doc "Records a `get_usage` answer: refreshes every plan window and reports them."
-  @spec put_usage(GenServer.server(), map()) :: :ok
-  def put_usage(server, answer) when is_map(answer), do: call(server, {:put_usage, answer}, :ok)
+  @doc """
+  Records a `get_usage` answer read with credential `key`: refreshes every plan window and reports them. An answer without windows reports an empty list, so Minga clears stale windows.
+
+  When the account's own answer named no plan and this credential's last check was ready, the plan the usage names is reported as the new ready label.
+  """
+  @spec put_usage(GenServer.server(), term(), map()) :: :ok
+  def put_usage(server, key, answer) when is_map(answer),
+    do: call(server, {:put_usage, key, answer}, :ok)
 
   @doc "Returns the current plan windows in display order."
   @spec plan_windows(GenServer.server()) :: [MingaAgent.InferenceRoute.PlanWindow.t()]
@@ -128,7 +133,8 @@ defmodule MingaClaudeBridge.Status do
        models: nil,
        context_windows: %{},
        windows: %{},
-       usage_label: nil,
+       ready_labels: %{},
+       usage_labels: %{},
        measuring: %{},
        tasks: Keyword.get(opts, :tasks),
        notify: Keyword.get(opts, :notify),
@@ -152,13 +158,16 @@ defmodule MingaClaudeBridge.Status do
   def handle_call({:put, key, availability}, _from, state) do
     cache = Map.put(state.cache, key, {availability, System.monotonic_time(:millisecond)})
 
-    label =
+    state =
       case availability do
-        {:ready, label} -> label
-        _unavailable -> state.label
+        {:ready, label} ->
+          %{state | label: label, ready_labels: Map.put(state.ready_labels, key, label)}
+
+        _unavailable ->
+          %{state | ready_labels: Map.delete(state.ready_labels, key)}
       end
 
-    {:reply, :ok, %{state | cache: cache, label: label}}
+    {:reply, :ok, %{state | cache: cache}}
   end
 
   def handle_call(:latest_rate_limit, _from, state), do: {:reply, state.rate_limit, state}
@@ -210,12 +219,13 @@ defmodule MingaClaudeBridge.Status do
     end
   end
 
-  def handle_call(:usage_label, _from, state), do: {:reply, state.usage_label, state}
+  def handle_call({:usage_label, key}, _from, state),
+    do: {:reply, Map.get(state.usage_labels, key), state}
 
-  def handle_call({:put_usage, answer}, _from, state) do
+  def handle_call({:put_usage, key, answer}, _from, state) do
     state = %{state | windows: PlanUsage.from_get_usage(answer)}
     report_windows(state)
-    {:reply, :ok, adopt_usage_label(state, PlanUsage.plan_label(answer))}
+    {:reply, :ok, adopt_usage_label(state, key, PlanUsage.plan_label(answer))}
   end
 
   def handle_call(:plan_windows, _from, state),
@@ -244,16 +254,29 @@ defmodule MingaClaudeBridge.Status do
   defp notify(%{notify: pid}, message) when is_pid(pid), do: send(pid, message)
   defp notify(_state, _message), do: :ok
 
-  # The account answer may lack a plan name. When usage names the plan, a ready route reports it.
-  defp adopt_usage_label(state, nil), do: state
+  # The account answer may lack a plan name. When usage names the plan and this credential's own
+  # check was ready with the generic label, the route reports the plan. Another credential's
+  # readiness never counts.
+  defp adopt_usage_label(state, _key, nil), do: state
 
-  defp adopt_usage_label(%{label: label, limited: false} = state, usage_label)
-       when label in [nil, "Claude Code"] do
-    report(state, {:ready, usage_label})
-    %{state | usage_label: usage_label, label: usage_label, cache: %{}}
+  defp adopt_usage_label(state, key, usage_label) do
+    state = %{state | usage_labels: Map.put(state.usage_labels, key, usage_label)}
+
+    case {Map.get(state.ready_labels, key), state.limited} do
+      {"Claude Code", false} ->
+        report(state, {:ready, usage_label})
+
+        %{
+          state
+          | label: usage_label,
+            ready_labels: Map.put(state.ready_labels, key, usage_label),
+            cache: Map.delete(state.cache, key)
+        }
+
+      _other ->
+        state
+    end
   end
-
-  defp adopt_usage_label(state, usage_label), do: %{state | usage_label: usage_label}
 
   defp record(state, %RateLimit{} = rate_limit) do
     state = %{
@@ -285,7 +308,6 @@ defmodule MingaClaudeBridge.Status do
   end
 
   defp report_windows(%{reporter: nil}), do: :ok
-  defp report_windows(%{windows: windows}) when map_size(windows) == 0, do: :ok
 
   defp report_windows(%{reporter: reporter, report_usage: report_usage, windows: windows}) do
     report_usage.(reporter, PlanUsage.to_list(windows))

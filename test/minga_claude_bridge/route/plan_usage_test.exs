@@ -73,4 +73,21 @@ defmodule MingaClaudeBridge.Route.PlanUsageTest do
 
     assert PlanUsage.apply_rate_limit(windows, %RateLimit{status: :allowed}) == windows
   end
+
+  test "a rate-limit event's utilization replaces the old value, as a fraction or a percent" do
+    windows = PlanUsage.from_get_usage(answer(%{"five_hour" => window(10)}))
+    event = %RateLimit{status: :allowed_warning, rate_limit_type: :five_hour}
+
+    for {reported, expected} <- [
+          {0.9, 0.9},
+          {1, 1.0},
+          {0, 0.0},
+          {85, 0.85},
+          {120, 1.0},
+          {nil, 0.1}
+        ] do
+      assert %{"five_hour" => %PlanWindow{utilization: ^expected, status: :warning}} =
+               PlanUsage.apply_rate_limit(windows, %{event | utilization: reported})
+    end
+  end
 end

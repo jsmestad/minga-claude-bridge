@@ -48,3 +48,15 @@ jobs:
 
       - name: Test
         run: mix test
+
+      # ex_doc is a dev-only dependency, so the docs build in the dev environment.
+      - name: Docs
+        run: mix docs
+        env:
+          MIX_ENV: dev
+
+      # Builds the Hex package without publishing it. The minga_sdk git dependency is
+      # `only: [:dev, :test]`, so Hex leaves it out of the package and accepts the build.
+      # The step fails when a listed package file is missing or a runtime git dependency appears.
+      - name: Hex package
+        run: mix hex.build --unpack -o "$RUNNER_TEMP/hex-package"

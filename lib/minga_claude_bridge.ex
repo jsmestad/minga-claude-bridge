@@ -4,7 +4,7 @@ defmodule MingaClaudeBridge do
 
   `init/1` registers `MingaClaudeBridge.Route` as the model route `"claude_bridge"` ("Claude (subscription)", short name "Claude", with a setup row for `/model`) and keeps the returned reporter for `MingaClaudeBridge.Status`. The extension's child is `MingaClaudeBridge.Supervisor`.
 
-  The route needs Minga's model-route API (jsmestad/minga#3734). On a Minga without it, `init/1` returns an error instead of crashing the editor.
+  The route needs Minga with model routes and plan usage (jsmestad/minga#3734 and #3756). On an older Minga, `init/1` returns an error naming that requirement instead of crashing the editor.
   """
 
   use Minga.Extension
@@ -18,7 +18,7 @@ defmodule MingaClaudeBridge do
     label: "Use Claude subscription (Claude Code)",
     description: "Sign in with the Claude Code CLI. Minga never sees your login."
   }
-  @needs_routes "minga_claude_bridge needs Minga with model routes (jsmestad/minga#3734)"
+  @needs_routes "minga_claude_bridge needs Minga with model routes and plan usage (jsmestad/minga#3734, #3756)"
 
   @impl true
   def name, do: :claude_bridge
@@ -33,7 +33,9 @@ defmodule MingaClaudeBridge do
   def init(_config) do
     routes = Application.get_env(:minga_claude_bridge, :model_routes, Minga.Extension.ModelRoutes)
 
-    if Code.ensure_loaded?(routes) and function_exported?(routes, :register, 2) do
+    # Plan usage (report_usage/3) arrived after model routes, so it marks the oldest supported Minga.
+    if Code.ensure_loaded?(routes) and function_exported?(routes, :register, 2) and
+         function_exported?(routes, :report_usage, 3) do
       register(routes)
     else
       {:error, @needs_routes}

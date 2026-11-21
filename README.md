@@ -6,7 +6,7 @@ It is the Minga counterpart of [pi-claude-bridge](https://github.com/elidickinso
 
 ## Install
 
-You need Claude Code 2.1.330 or newer, and a Minga build with model routes (jsmestad/minga#3734).
+You need Claude Code 2.1.330 or newer and a recent Minga; see [Supported versions](#supported-versions).
 
 1. Install Claude Code from <https://claude.com/claude-code> and sign in once in a terminal:
 
@@ -20,9 +20,20 @@ You need Claude Code 2.1.330 or newer, and a Minga build with model routes (jsme
    extension :claude_bridge, git: "https://github.com/jsmestad/minga-claude-bridge"
    ```
 
+   After the first Hex release, you can install a versioned package instead:
+
+   ```elixir
+   extension :claude_bridge, hex: "minga_claude_bridge", version: "~> 0.1"
+   ```
+
 3. Restart Minga and open `/model`. The Claude models appear under **Claude (subscription)** with your plan, for example "Claude Pro". Select one, or use `/model claude_bridge:sonnet`.
 
 If something is missing, the `/model` row says what to do: install Claude Code, run `claude auth login`, or update Claude Code with `claude update`.
+
+## Supported versions
+
+- **Minga:** `main` from jsmestad/minga#3756 onward, which adds plan usage to the model routes of jsmestad/minga#3734. On an older Minga the extension does not load, and Minga reports "minga_claude_bridge needs Minga with model routes and plan usage (jsmestad/minga#3734, #3756)".
+- **Claude Code:** 2.1.330 or newer. With an older `claude`, `/model` shows the route as unavailable and asks you to run `claude update`.
 
 ## Models and effort
 
