@@ -37,6 +37,7 @@ defmodule MingaClaudeBridge.Session do
 
   require Logger
 
+  alias MingaClaudeBridge.History
   alias MingaClaudeBridge.Session.{Event, Request, State}
   alias MingaClaudeBridge.Wire
 
@@ -74,7 +75,11 @@ defmodule MingaClaudeBridge.Session do
           idle_timeout: timeout_ms(),
           interrupt_timeout: non_neg_integer(),
           timer: {atom(), reference()} | nil,
-          next_id: pos_integer()
+          next_id: pos_integer(),
+          owner_monitor: reference() | nil,
+          ready_waiters: [GenServer.from()],
+          seen: History.t(),
+          launch: keyword()
         }
 
   @enforce_keys [
@@ -96,7 +101,11 @@ defmodule MingaClaudeBridge.Session do
     :idle_timeout,
     :interrupt_timeout,
     :timer,
-    next_id: 1
+    :owner_monitor,
+    :seen,
+    :launch,
+    next_id: 1,
+    ready_waiters: []
   ]
 
   @doc """
@@ -113,6 +122,7 @@ defmodule MingaClaudeBridge.Session do
     * `:idle_timeout` - milliseconds in `:idle` before the session stops, or `:infinity`. Defaults to 15 minutes.
     * `:interrupt_timeout` - milliseconds Claude Code has to end a turn after `interrupt`. Defaults to #{@default_interrupt_timeout}.
     * `:startup_timeout` - milliseconds to finish startup. Defaults to #{@default_startup_timeout}.
+    * `:owner` - a pid. When it exits, the session stops normally, which stops Claude Code. Use it with `start/1` for a session that must not outlive the process that uses it.
     * `:name` - a GenServer name.
   """
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -120,6 +130,37 @@ defmodule MingaClaudeBridge.Session do
     {name_opts, opts} = Keyword.split(opts, [:name])
     GenServer.start_link(__MODULE__, opts, name_opts)
   end
+
+  @doc """
+  Starts a session without linking it to the caller. A failed start returns `{:error, reason}` instead of exiting the caller. Pass `:owner` so the session stops when the caller exits.
+  """
+  @spec start(keyword()) :: GenServer.on_start()
+  def start(opts) do
+    {name_opts, opts} = Keyword.split(opts, [:name])
+    GenServer.start(__MODULE__, opts, name_opts)
+  end
+
+  @doc """
+  Waits until startup completes. Returns `{:ok, info}` (see `info/1`) once Claude Code answered `initialize`, or `{:error, reason}` when the session died first. Exits when `timeout` passes, like `GenServer.call/3`.
+  """
+  @spec await_ready(GenServer.server(), timeout()) :: {:ok, State.info()} | {:error, term()}
+  def await_ready(session, timeout \\ 30_000), do: GenServer.call(session, :await_ready, timeout)
+
+  @doc """
+  Returns the history digests this Claude Code process has seen (see `MingaClaudeBridge.History`). A new session has seen nothing.
+  """
+  @spec seen(GenServer.server()) :: History.t()
+  def seen(session), do: GenServer.call(session, :seen)
+
+  @doc """
+  Records what this Claude Code process has seen after a completed request. The caller builds `history` with `MingaClaudeBridge.History.record/2`.
+  """
+  @spec remember(GenServer.server(), History.t()) :: :ok
+  def remember(session, history), do: GenServer.call(session, {:remember, history})
+
+  @doc "Returns the launch settings the process was started with (`:model`, `:effort`, `:resume`, `:persist_session`)."
+  @spec launch(GenServer.server()) :: keyword()
+  def launch(session), do: GenServer.call(session, :launch)
 
   @doc """
   Starts a request. `subscriber` receives the request's events as `{ref, event}` messages, where `ref` is `request.ref`.
@@ -176,6 +217,9 @@ defmodule MingaClaudeBridge.Session do
               min_version: Keyword.get(opts, :min_version)
             ),
           on_rate_limit: Keyword.get(opts, :on_rate_limit),
+          owner_monitor: monitor_owner(Keyword.get(opts, :owner)),
+          seen: History.new(),
+          launch: Keyword.take(opts, [:model, :effort, :resume, :persist_session]),
           idle_timeout: Keyword.get(opts, :idle_timeout, @default_idle_timeout),
           interrupt_timeout: Keyword.get(opts, :interrupt_timeout, @default_interrupt_timeout)
         }
@@ -234,6 +278,25 @@ defmodule MingaClaudeBridge.Session do
 
   def handle_call(:phase, _from, session), do: {:reply, State.phase_tag(session.state), session}
   def handle_call(:info, _from, session), do: {:reply, State.info(session.state), session}
+  def handle_call(:seen, _from, session), do: {:reply, session.seen, session}
+
+  def handle_call({:remember, history}, _from, session),
+    do: {:reply, :ok, %{session | seen: history}}
+
+  def handle_call(:launch, _from, session), do: {:reply, session.launch, session}
+
+  def handle_call(:await_ready, from, session) do
+    case session.state.phase do
+      {:starting, _queued} ->
+        {:noreply, %{session | ready_waiters: [from | session.ready_waiters]}}
+
+      {:dead, reason} ->
+        {:reply, {:error, reason}, session}
+
+      _ready ->
+        {:reply, {:ok, State.info(session.state)}, session}
+    end
+  end
 
   @impl GenServer
   def handle_info({:transport, ref, event}, %__MODULE__{transport_ref: ref} = session),
@@ -252,6 +315,14 @@ defmodule MingaClaudeBridge.Session do
       {:ok, session} -> {:noreply, session}
       {:error, _reason} -> {:noreply, session}
     end
+  end
+
+  def handle_info(
+        {:DOWN, monitor, :process, _pid, _reason},
+        %__MODULE__{owner_monitor: monitor} = session
+      ) do
+    Logger.debug("claude_bridge: owner down, stopping session")
+    {:stop, :normal, session}
   end
 
   def handle_info({:DOWN, _monitor, :process, _pid, _reason}, session), do: {:noreply, session}
@@ -427,8 +498,8 @@ defmodule MingaClaudeBridge.Session do
 
     case outcome do
       :ignored -> session
-      :ready -> session |> cancel_timer() |> enter_idle()
-      {:ready, prompt} -> session |> cancel_timer() |> perform_request(prompt)
+      :ready -> session |> cancel_timer() |> reply_ready() |> enter_idle()
+      {:ready, prompt} -> session |> cancel_timer() |> reply_ready() |> perform_request(prompt)
       {:dead, reason} -> die(session, reason)
     end
   end
@@ -528,7 +599,17 @@ defmodule MingaClaudeBridge.Session do
 
   defp kill(session, reason), do: apply_dead(session, State.transport_down(session.state, reason))
 
+  defp reply_ready(session) do
+    Enum.each(session.ready_waiters, &GenServer.reply(&1, {:ok, State.info(session.state)}))
+    %{session | ready_waiters: []}
+  end
+
+  defp monitor_owner(nil), do: nil
+  defp monitor_owner(pid) when is_pid(pid), do: Process.monitor(pid)
+
   defp die(session, reason) do
+    Enum.each(session.ready_waiters, &GenServer.reply(&1, {:error, reason}))
+    session = %{session | ready_waiters: []}
     Logger.warning("claude_bridge: session dead (#{dead_tag(reason)})")
     session = session |> cancel_timer() |> finish_active({:error, reason})
     stop_transport(session, :shutdown)

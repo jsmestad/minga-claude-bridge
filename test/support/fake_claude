@@ -14,6 +14,7 @@
 #   FAKE_CLAUDE_BIG=N              stream one text delta of N bytes
 #   FAKE_CLAUDE_IGNORE_TERM=1      ignore SIGTERM and keep running after stdin closes
 #   FAKE_CLAUDE_VERSION=v          claude_code_version in the initialize answer (default 2.1.330)
+#   FAKE_CLAUDE_SIGNED_OUT=1       report the signed-out account Claude Code 2.1.330 sends ({"tokenSource":"none"})
 #
 # `fake_claude --version` prints a version line and exits.
 
@@ -70,7 +71,13 @@ mcp_ready=""
 
 ready() {
   if [ -n "$bridge_init" ] && [ -n "$mcp_ready" ] && [ "$bridge_init" != "done" ]; then
-    emit '{"type":"control_response","response":{"subtype":"success","request_id":"'"$bridge_init"'","response":{"account":{"email":"fake@example.com","subscriptionType":"Claude Pro"},"models":[{"value":"haiku","displayName":"Haiku"}],"claude_code_version":"'"$version"'","pid":'"$$"'}}}'
+    if [ "$FAKE_CLAUDE_SIGNED_OUT" = "1" ]; then
+      account='{"tokenSource":"none","apiProvider":"firstParty"}'
+    else
+      account='{"email":"fake@example.com","subscriptionType":"Claude Pro","apiProvider":"firstParty"}'
+    fi
+    models='[{"value":"haiku","displayName":"Haiku 5.5","supportedEffortLevels":["low","medium","high","xhigh","max"]},{"value":"claude-haiku-4-5","displayName":"Haiku 4.5","supportedEffortLevels":null}]'
+    emit '{"type":"control_response","response":{"subtype":"success","request_id":"'"$bridge_init"'","response":{"account":'"$account"',"models":'"$models"',"claude_code_version":"'"$version"'","pid":'"$$"'}}}'
     mcp mcp-2 '{"jsonrpc":"2.0","method":"notifications/initialized"}'
     mcp mcp-3 '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
     bridge_init="done"

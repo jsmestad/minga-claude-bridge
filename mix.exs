@@ -36,6 +36,8 @@ defmodule MingaClaudeBridge.MixProject do
 
   defp deps do
     [
+      {:minga_sdk,
+       git: "https://github.com/jsmestad/minga", branch: "main", sparse: "sdk", runtime: false},
       {:stream_data, "~> 1.1", only: [:dev, :test]},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false}
