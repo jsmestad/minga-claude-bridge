@@ -43,7 +43,7 @@ defmodule MingaClaudeBridge.MixProject do
     [
       main: "readme",
       extras: ["README.md", "CHANGELOG.md", "LICENSE"],
-      source_ref: "v#{@version}",
+      source_ref: "main",
       source_url: @source_url
     ]
   end

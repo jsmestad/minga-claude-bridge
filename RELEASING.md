@@ -12,7 +12,7 @@ The bridge compiles against `minga_sdk`. Publish the SDK first, from `sdk/` in j
 
 2. **Bump the version and the changelog.**
    - Set `@version` in `mix.exs` and the version in `lib/minga_claude_bridge/version.ex`. The version test fails when they disagree.
-   - Move the `Unreleased` entry in `CHANGELOG.md` to the new version with today's date, and add the link for the tag.
+   - Move the `Unreleased` entry in `CHANGELOG.md` to the new version with today's date, and add its link to the Hex release page.
 
 3. **Check the `minga_sdk` dependency.** It must stay the Hex line with `only: [:dev, :test]`:
 
@@ -32,24 +32,15 @@ The bridge compiles against `minga_sdk`. Publish the SDK first, from `sdk/` in j
    - The printed metadata has no `Dependencies` section: no runtime dependency on `minga_sdk`, `minga`, or `req_llm`. Check `/tmp/minga_claude_bridge-pkg/hex_metadata.config` as well; its `requirements` list is empty.
    - `mix docs` builds and the README renders as the main page.
 
-5. **Tag the release.**
-
-   ```sh
-   git tag -a v0.1.0 -m "minga_claude_bridge 0.1.0"
-   git push origin v0.1.0
-   ```
-
-   The docs link sources to this tag (`source_ref`).
-
-6. **Publish (maintainer only).**
+5. **Publish (maintainer only).**
 
    ```sh
    mix hex.publish
    ```
 
-   Review the package and docs summary Hex prints before confirming.
+   Review the package and docs summary Hex prints before confirming. The docs link sources to `main` (`source_ref`).
 
-7. **Verify the install.** In a Minga without a checkout of either repo, declare only:
+6. **Verify the install.** In a Minga without a checkout of either repo, declare only:
 
    ```elixir
    extension :claude_bridge, hex: "minga_claude_bridge", version: "~> 0.1"
