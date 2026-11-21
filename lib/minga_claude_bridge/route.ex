@@ -183,7 +183,35 @@ defmodule MingaClaudeBridge.Route do
       :miss ->
         availability = probe_availability(config, env)
         Status.put(config.status, key, availability)
+        if match?({:ready, _label}, availability), do: start_measurement(config, env, key)
         availability
+    end
+  end
+
+  # Plan usage and context windows are measured beside the availability check, never on it:
+  # a background task with its own probe session, at most one per credential, under the bridge's
+  # task supervisor. Windows already measured within the window TTL are not measured again.
+  defp start_measurement(config, env, key) do
+    Status.start_measurement(config.status, key, fn -> measure(config, env, key) end)
+  end
+
+  defp measure(config, env, key) do
+    deadline = System.monotonic_time(:millisecond) + config.measure_deadline
+
+    case Probe.start_ready(config, env, "measure-") do
+      {:ok, session, info} ->
+        model_ids = for %{"value" => id} <- info.models, is_binary(id), do: id
+        # Usage first and reported at once: it changes between checks, the windows rarely do.
+        usage = Probe.usage(session, deadline)
+        if usage, do: Status.put_usage(config.status, usage)
+
+        stale = Status.stale_models(config.status, key, model_ids, config.window_ttl)
+        windows = Probe.context_windows(session, stale, deadline)
+        Probe.stop(session)
+        Status.put_context_windows(config.status, key, windows)
+
+      {:error, _reason} ->
+        :ok
     end
   end
 
@@ -204,10 +232,10 @@ defmodule MingaClaudeBridge.Route do
   defp probe_availability(config, env) do
     case Probe.run(config, env) do
       {:ok, %{account: account} = info} ->
-        record_probe(config, info)
+        Status.put_models(config.status, info.models)
 
         if Probe.signed_in?(account),
-          do: {:ready, Probe.plan_label(account, Map.get(info, :usage))},
+          do: {:ready, Probe.plan_label(account, Status.usage_label(config.status))},
           else: {:unavailable, :not_signed_in, @sign_in_remedy}
 
       {:error, reason} ->
@@ -493,16 +521,6 @@ defmodule MingaClaudeBridge.Route do
         {:error, _reason} -> :ok
       end
     end)
-  end
-
-  defp record_probe(config, info) do
-    Status.put_models(config.status, info.models)
-    Status.put_context_windows(config.status, Map.get(info, :context_windows, %{}))
-
-    case Map.get(info, :usage) do
-      %{} = usage -> Status.put_usage(config.status, usage)
-      nil -> :ok
-    end
   end
 
   defp to_models(entries, windows) do

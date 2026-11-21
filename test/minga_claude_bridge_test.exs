@@ -52,7 +52,7 @@ defmodule MingaClaudeBridgeTest do
         )
       )
 
-    assert [_registry, _sessions, _status] = Supervisor.which_children(supervisor)
+    assert [_status, _tasks, _sessions, _registry] = Supervisor.which_children(supervisor)
 
     {:ok, _session} =
       DynamicSupervisor.start_child(

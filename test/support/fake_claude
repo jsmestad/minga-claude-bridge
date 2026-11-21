@@ -8,7 +8,7 @@
 # Input lines are matched with `case` patterns; the bridge's JSON encoder writes no spaces.
 #
 # Behaviour switches (environment variables):
-#   FAKE_CLAUDE_DUMP=path          write the environment to path, argv to path.argv, the working directory to path.cwd, the pid to path.pid
+#   FAKE_CLAUDE_DUMP=path          write the environment to path, argv to path.argv, the working directory to path.cwd, the pid to path.pid, and appends it to path.pids
 #   FAKE_CLAUDE_TOOLS=json-array   tools reported in system/init (default ["mcp__minga__read_file"])
 #   FAKE_CLAUDE_EXIT_ON_PROMPT=N   exit with status N when a user message arrives
 #   FAKE_CLAUDE_BIG=N              stream one text delta of N bytes
@@ -16,6 +16,7 @@
 #   FAKE_CLAUDE_VERSION=v          claude_code_version in the initialize answer (default 2.1.330)
 #   FAKE_CLAUDE_CONTROL=ignore     never answer set_model, get_context_usage, or get_usage (they answer with the 2.1.330 shapes otherwise)
 #   FAKE_CLAUDE_RATE_LIMITS=json   the rate_limits object of the get_usage answer
+#   FAKE_CLAUDE_CONTROL_DELAY=N    wait N seconds before answering each get_context_usage
 #   FAKE_CLAUDE_SIGNED_OUT=1       report the signed-out account Claude Code 2.1.330 sends ({"tokenSource":"none"})
 #
 # `fake_claude --version` prints a version line and exits.
@@ -38,6 +39,7 @@ if [ -n "$FAKE_CLAUDE_DUMP" ]; then
   mv "$FAKE_CLAUDE_DUMP.tmp" "$FAKE_CLAUDE_DUMP"
   # Written last: tests wait for this file before reading the others.
   echo $$ > "$FAKE_CLAUDE_DUMP.pid"
+  echo $$ >> "$FAKE_CLAUDE_DUMP.pids"
 fi
 
 # Exit quietly once the bridge closed stdout.
@@ -120,6 +122,9 @@ while IFS= read -r line; do
       fi
       ;;
     *'"type":"control_request"'*'"subtype":"get_context_usage"'* | *'"subtype":"get_context_usage"'*'"type":"control_request"'*)
+      if [ -n "$FAKE_CLAUDE_CONTROL_DELAY" ]; then
+        sleep "$FAKE_CLAUDE_CONTROL_DELAY"
+      fi
       if [ "$FAKE_CLAUDE_CONTROL" != "ignore" ]; then
         control_success "$(request_id "$line")" '{"model":"claude-'"$model"'","totalTokens":1200,"maxTokens":'"$(window "$model")"',"rawMaxTokens":'"$(window "$model")"',"percentage":0,"autoCompactThreshold":null,"isAutoCompactEnabled":false,"categories":[]}'
       fi
