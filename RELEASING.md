@@ -17,7 +17,7 @@ The bridge compiles against `minga_sdk`. Publish the SDK first, from `sdk/` in j
 3. **Switch `minga_sdk` to Hex.** Replace the git dependency in `mix.exs` with the Hex line from its `TODO(release)` comment:
 
    ```elixir
-   {:minga_sdk, "~> 0.2", only: [:dev, :test], runtime: false},
+   {:minga_sdk, "~> 0.1", only: [:dev, :test], runtime: false},
    ```
 
    Keep `only: [:dev, :test]`. Minga provides the real modules at runtime. Without `only`, `minga_sdk` becomes a runtime dependency, and installing the bridge in Minga compiles SDK stubs that shadow Minga's modules. Run `mix deps.get`, then the checks: `mix compile --warnings-as-errors`, `mix credo --strict`, `mix test`, `mix format --check-formatted`.
