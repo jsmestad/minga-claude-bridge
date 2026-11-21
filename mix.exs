@@ -9,6 +9,7 @@ defmodule MingaClaudeBridge.MixProject do
       app: :minga_claude_bridge,
       version: @version,
       elixir: "~> 1.20",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description:
@@ -22,6 +23,9 @@ defmodule MingaClaudeBridge.MixProject do
   def application do
     [extra_applications: [:logger, :crypto]]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_env), do: ["lib"]
 
   defp package do
     [
