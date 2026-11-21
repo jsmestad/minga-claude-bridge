@@ -1,0 +1,106 @@
+#!/bin/sh
+# A fake `claude` for the Port transport tests, written in POSIX sh because a BEAM-based script takes several seconds to boot.
+# It speaks the stream-json protocol in the order Claude Code 2.1.330 uses:
+#   1. MCP `initialize` request for server "minga" (before anything else).
+#   2. The answer to the bridge's `initialize` control request (after the MCP answer arrives).
+#   3. MCP `notifications/initialized`, then MCP `tools/list`.
+#   4. Per user message: `system/init`, stream events, the matching `assistant` frame, `rate_limit_event`, `result`.
+# Input lines are matched with `case` patterns; the bridge's JSON encoder writes no spaces.
+#
+# Behaviour switches (environment variables):
+#   FAKE_CLAUDE_DUMP=path          write the environment to path, argv to path.argv, the working directory to path.cwd, the pid to path.pid
+#   FAKE_CLAUDE_TOOLS=json-array   tools reported in system/init (default ["mcp__minga__read_file"])
+#   FAKE_CLAUDE_EXIT_ON_PROMPT=N   exit with status N when a user message arrives
+#   FAKE_CLAUDE_BIG=N              stream one text delta of N bytes
+#   FAKE_CLAUDE_IGNORE_TERM=1      ignore SIGTERM and keep running after stdin closes
+#   FAKE_CLAUDE_VERSION=v          claude_code_version in the initialize answer (default 2.1.330)
+#
+# `fake_claude --version` prints a version line and exits.
+
+version="${FAKE_CLAUDE_VERSION:-2.1.330}"
+
+if [ "$1" = "--version" ]; then
+  printf '%s (Claude Code)\n' "$version"
+  exit 0
+fi
+
+if [ "$FAKE_CLAUDE_IGNORE_TERM" = "1" ]; then
+  trap '' TERM
+fi
+
+if [ -n "$FAKE_CLAUDE_DUMP" ]; then
+  env > "$FAKE_CLAUDE_DUMP.tmp"
+  printf '%s\n' "$@" > "$FAKE_CLAUDE_DUMP.argv"
+  pwd -P > "$FAKE_CLAUDE_DUMP.cwd"
+  echo $$ > "$FAKE_CLAUDE_DUMP.pid"
+  mv "$FAKE_CLAUDE_DUMP.tmp" "$FAKE_CLAUDE_DUMP"
+fi
+
+# Exit quietly once the bridge closed stdout.
+emit() { printf '%s\n' "$1" 2>/dev/null || exit 0; }
+
+mcp() {
+  emit '{"type":"control_request","request_id":"'"$1"'","request":{"subtype":"mcp_message","server_name":"minga","message":'"$2"'}}'
+}
+
+stream() { emit '{"type":"stream_event","parent_tool_use_id":null,"event":'"$1"'}'; }
+
+turn() {
+  tools="${FAKE_CLAUDE_TOOLS:-[\"mcp__minga__read_file\"]}"
+  if [ -n "$FAKE_CLAUDE_BIG" ]; then
+    text=$(head -c "$FAKE_CLAUDE_BIG" /dev/zero | tr '\0' x)
+  else
+    text="Hello from fake claude"
+  fi
+
+  emit '{"type":"system","subtype":"init","session_id":"fake-session","tools":'"$tools"',"mcp_servers":[{"name":"minga","status":"connected"}],"claude_code_version":"'"$version"'"}'
+  stream '{"type":"message_start","message":{"id":"msg_fake","model":"haiku","usage":{"input_tokens":12,"output_tokens":0}}}'
+  stream '{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
+  stream '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"'"$text"'"}}'
+  stream '{"type":"content_block_stop","index":0}'
+  stream '{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}'
+  stream '{"type":"message_stop"}'
+  emit '{"type":"assistant","parent_tool_use_id":null,"message":{"id":"msg_fake","model":"haiku","content":[{"type":"text","text":"'"$text"'"}]}}'
+  emit '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","rateLimitType":"five_hour"}}'
+  emit '{"type":"result","subtype":"success","is_error":false,"result":"done","stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":5}}'
+}
+
+bridge_init=""
+mcp_ready=""
+
+ready() {
+  if [ -n "$bridge_init" ] && [ -n "$mcp_ready" ] && [ "$bridge_init" != "done" ]; then
+    emit '{"type":"control_response","response":{"subtype":"success","request_id":"'"$bridge_init"'","response":{"account":{"email":"fake@example.com","subscriptionType":"Claude Pro"},"models":[{"value":"haiku","displayName":"Haiku"}],"claude_code_version":"'"$version"'","pid":'"$$"'}}}'
+    mcp mcp-2 '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+    mcp mcp-3 '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+    bridge_init="done"
+  fi
+}
+
+mcp mcp-1 '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}'
+
+while IFS= read -r line; do
+  case "$line" in
+    *'"type":"control_response"'*'"request_id":"mcp-1"'* | *'"request_id":"mcp-1"'*'"type":"control_response"'*)
+      mcp_ready=1
+      ready
+      ;;
+    *'"type":"control_request"'*'"subtype":"initialize"'* | *'"subtype":"initialize"'*'"type":"control_request"'*)
+      bridge_init=$(printf '%s' "$line" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+      ready
+      ;;
+    *'"type":"user"'*)
+      if [ -n "$FAKE_CLAUDE_EXIT_ON_PROMPT" ]; then
+        exit "$FAKE_CLAUDE_EXIT_ON_PROMPT"
+      fi
+      turn
+      ;;
+  esac
+done
+
+if [ "$FAKE_CLAUDE_IGNORE_TERM" = "1" ]; then
+  # SIGTERM stays ignored across exec, so only SIGKILL ends this process.
+  exec sleep 86400
+fi
+
+exit 0

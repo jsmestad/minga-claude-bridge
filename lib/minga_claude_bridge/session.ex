@@ -106,7 +106,7 @@ defmodule MingaClaudeBridge.Session do
 
     * `:transport` (required) - `{module, opts}` where `module` implements `MingaClaudeBridge.Transport`.
     * `:system_prompt` - sent with `initialize`.
-    * `:model`, `:effort`, `:resume` - passed to the transport as `:launch` settings. `:resume` is a Claude Code session id or `nil`.
+    * `:model`, `:effort`, `:resume`, `:persist_session` - passed to the transport as `:launch` settings (see `MingaClaudeBridge.Launch`). `:resume` is a Claude Code session id or `nil`.
     * `:tools` - the tool declarations for `tools/list` until the first request.
     * `:min_version` - the lowest supported `claude_code_version`, or `nil` to skip the check.
     * `:on_rate_limit` - a pid or a one-argument function. See the module documentation.
@@ -160,7 +160,7 @@ defmodule MingaClaudeBridge.Session do
       Keyword.merge(transport_opts,
         owner: self(),
         ref: transport_ref,
-        launch: Keyword.take(opts, [:model, :effort, :resume])
+        launch: Keyword.take(opts, [:model, :effort, :resume, :persist_session])
       )
 
     case transport.start(start_opts) do
