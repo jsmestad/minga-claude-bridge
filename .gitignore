@@ -6,3 +6,4 @@ erl_crash.dump
 *.ez
 minga_claude_bridge-*.tar
 /tmp/
+!.tool-versions
