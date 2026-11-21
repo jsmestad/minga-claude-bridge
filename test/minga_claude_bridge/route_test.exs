@@ -67,7 +67,7 @@ defmodule MingaClaudeBridge.RouteTest do
       },
       conversation: %ConversationRef{
         session_id: Keyword.get(opts, :conversation, "conv-1"),
-        owner: self(),
+        owner: Keyword.get(opts, :owner, self()),
         epoch_id: "epoch-1",
         conversation_revision: 1,
         request_id: 1,
@@ -395,6 +395,19 @@ defmodule MingaClaudeBridge.RouteTest do
       assert_receive {:scripted_stopped, ^first_ref, _reason}
       fresh = started()
       assert user_text(written(fresh)) =~ "<transcript>"
+    end
+
+    test "the Claude Code process stops when the Minga session that owns the conversation exits",
+         %{config: config} do
+      owner = spawn(fn -> receive do: (:never -> :ok) end)
+      _response = Route.stream(request([user("hello")], owner: owner), config)
+      cc = started()
+      monitor = Process.monitor(cc.session)
+
+      Process.exit(owner, :kill)
+      ref = cc.ref
+      assert_receive {:scripted_stopped, ^ref, _reason}
+      assert_receive {:DOWN, ^monitor, :process, _pid, :normal}
     end
 
     test "a dead session is replaced by the next request", %{config: config} do

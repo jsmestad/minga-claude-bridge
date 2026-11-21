@@ -6,7 +6,7 @@ defmodule MingaClaudeBridge.Route do
 
   ## Conversations
 
-  Each Minga conversation (`ConversationRef.session_id`) has at most one live session, started under `MingaClaudeBridge.SessionSupervisor` and found through `MingaClaudeBridge.Registry`. Its working directory key is derived from the conversation id, so it is stable across restarts.
+  Each Minga conversation (`ConversationRef.session_id`) has at most one live session, started under `MingaClaudeBridge.SessionSupervisor` and found through `MingaClaudeBridge.Registry`. Its working directory key is derived from the conversation id, so it is stable across restarts. The session stops when the Minga agent session that owns the conversation (`ConversationRef.owner`) exits.
 
   For a `:turn` request the route compares the request with what the session has seen (`MingaClaudeBridge.History`, built by `MingaClaudeBridge.Route.Mapping`):
 
@@ -306,7 +306,10 @@ defmodule MingaClaudeBridge.Route do
       session_opts(config, request, effort, tools,
         session_key: Mapping.workdir_key(conversation_id)
       ) ++
-        [name: {:via, Registry, {config.registry, {:conversation, conversation_id, make_ref()}}}]
+        [
+          name: {:via, Registry, {config.registry, {:conversation, conversation_id, make_ref()}}},
+          owner: conversation_owner(request)
+        ]
 
     case DynamicSupervisor.start_child(config.supervisor, {Session, opts}) do
       {:ok, session} ->
@@ -468,6 +471,10 @@ defmodule MingaClaudeBridge.Route do
   catch
     :exit, _already_stopped -> :ok
   end
+
+  # The Minga agent session that owns the conversation. The Claude Code process stops when it exits.
+  defp conversation_owner(%Request{conversation: %{owner: owner}}) when is_pid(owner), do: owner
+  defp conversation_owner(_request), do: nil
 
   defp credential_env(%Credential{env: env}) when is_map(env), do: env
   defp credential_env(%{env: env}) when is_map(env), do: env
