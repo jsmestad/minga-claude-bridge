@@ -52,7 +52,6 @@ defmodule MingaClaudeBridge.MCP do
     "2024-10-07"
   ]
   @server_name "minga"
-  @server_version Mix.Project.config()[:version]
   @tool_use_id_meta "claudecode/toolUseId"
 
   @invalid_request -32_600
@@ -105,7 +104,7 @@ defmodule MingaClaudeBridge.MCP do
      %{
        "protocolVersion" => protocol_version(params),
        "capabilities" => %{"tools" => %{}},
-       "serverInfo" => %{"name" => @server_name, "version" => @server_version}
+       "serverInfo" => %{"name" => @server_name, "version" => MingaClaudeBridge.Version.version()}
      }}
   end
 

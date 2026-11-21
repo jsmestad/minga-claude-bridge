@@ -33,8 +33,9 @@ if [ -n "$FAKE_CLAUDE_DUMP" ]; then
   env > "$FAKE_CLAUDE_DUMP.tmp"
   printf '%s\n' "$@" > "$FAKE_CLAUDE_DUMP.argv"
   pwd -P > "$FAKE_CLAUDE_DUMP.cwd"
-  echo $$ > "$FAKE_CLAUDE_DUMP.pid"
   mv "$FAKE_CLAUDE_DUMP.tmp" "$FAKE_CLAUDE_DUMP"
+  # Written last: tests wait for this file before reading the others.
+  echo $$ > "$FAKE_CLAUDE_DUMP.pid"
 fi
 
 # Exit quietly once the bridge closed stdout.

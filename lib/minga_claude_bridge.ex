@@ -22,7 +22,7 @@ defmodule MingaClaudeBridge do
   def description, do: "Claude models from your Claude subscription, through the claude CLI"
 
   @impl true
-  def version, do: unquote(Mix.Project.config()[:version])
+  def version, do: MingaClaudeBridge.Version.version()
 
   @impl true
   def init(_config) do
