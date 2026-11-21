@@ -83,17 +83,21 @@ defmodule MingaClaudeBridge.LiveClaudeTest do
     {:ok, executable} = Binary.resolve()
 
     session =
-      start_supervised!(
-        {Session,
-         transport:
-           {PortTransport,
-            executable: executable,
-            parent_env: Map.put(System.get_env(), "HOME", home),
-            workdir_base: Path.join(home, "work")},
-         model: "haiku",
-         min_version: Launch.min_version(),
-         startup_timeout: 60_000}
-      )
+      start_supervised!({Session,
+       transport:
+         {
+           PortTransport,
+           # Drop CLAUDE_CONFIG_DIR and XDG_CONFIG_HOME so Claude Code reads only the fake HOME, never the real config.
+           executable: executable,
+           parent_env:
+             System.get_env()
+             |> Map.drop(["CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME"])
+             |> Map.put("HOME", home),
+           workdir_base: Path.join(home, "work")
+         },
+       model: "haiku",
+       min_version: Launch.min_version(),
+       startup_timeout: 60_000})
 
     prompt =
       "Use any tool you have to run this shell command: #{touch.("shell")}\n" <>
