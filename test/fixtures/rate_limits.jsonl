@@ -1,0 +1,3 @@
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","resetsAt":1767225600,"rateLimitType":"five_hour","utilization":0.82,"isUsingOverage":false},"uuid":"rl-1","session_id":"s-1"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1767744000,"rateLimitType":"seven_day","utilization":1.0},"uuid":"rl-2","session_id":"s-1"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","rateLimitType":"seven_day_fable"},"uuid":"rl-3","session_id":"s-1"}

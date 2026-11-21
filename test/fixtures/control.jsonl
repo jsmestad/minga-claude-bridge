@@ -1,0 +1,8 @@
+{"type":"control_request","request_id":"req_1","request":{"subtype":"mcp_message","server_name":"minga","message":{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"lib/minga.ex"},"_meta":{"claudecode/toolUseId":"toolu_01XYZ"}}}}}
+{"type":"control_request","request_id":"req_2","request":{"subtype":"mcp_message","server_name":"minga","message":{"jsonrpc":"2.0","method":"notifications/initialized"}}}
+{"type":"control_request","request_id":"req_3","request":{"subtype":"can_use_tool","tool_name":"mcp__minga__shell","input":{"command":"ls"},"tool_use_id":"toolu_02","permission_suggestions":[]}}
+{"type":"control_request","request_id":"req_4","request":{"subtype":"hook_callback","callback_id":"hook_0","input":{}}}
+{"type":"control_response","response":{"subtype":"success","request_id":"init_1","response":{"commands":[],"models":[],"account":{}}}}
+{"type":"control_response","response":{"subtype":"success","request_id":"int_1"}}
+{"type":"control_response","response":{"subtype":"error","request_id":"init_2","error":"Unknown SDK MCP server: minga"}}
+{"type":"control_cancel_request","request_id":"req_1"}

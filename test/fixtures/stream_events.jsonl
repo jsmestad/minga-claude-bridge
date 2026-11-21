@@ -1,0 +1,16 @@
+{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_01Abc","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":12,"cache_creation_input_tokens":2048,"cache_read_input_tokens":0,"output_tokens":1}}},"parent_tool_use_id":null,"uuid":"u-1","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}},"parent_tool_use_id":null,"uuid":"u-2","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"The user wants the file."}},"parent_tool_use_id":null,"uuid":"u-3","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"EqQBCkYIBxgCKkA"}},"parent_tool_use_id":null,"uuid":"u-4","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"content_block_stop","index":0},"parent_tool_use_id":null,"uuid":"u-5","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}},"parent_tool_use_id":null,"uuid":"u-6","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Reading it now."}},"parent_tool_use_id":null,"uuid":"u-7","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_01XYZ","name":"mcp__minga__read_file","input":{}}},"parent_tool_use_id":null,"uuid":"u-8","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"path\": \"lib/"}},"parent_tool_use_id":null,"uuid":"u-9","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":87}},"parent_tool_use_id":null,"uuid":"u-10","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"message_stop"},"parent_tool_use_id":null,"uuid":"u-11","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"ping"},"parent_tool_use_id":null,"uuid":"u-12","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}},"parent_tool_use_id":null,"uuid":"u-13","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"future_delta","value":1}},"parent_tool_use_id":"toolu_parent","uuid":"u-14","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"future_event"},"parent_tool_use_id":null,"uuid":"u-15","session_id":"s-1"}
+{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"brand_new_reason","stop_sequence":null},"usage":{"output_tokens":3}},"parent_tool_use_id":null,"uuid":"u-16","session_id":"s-1"}
