@@ -1,0 +1,4 @@
+{"type":"keep_alive"}
+{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":500,"error_status":529,"uuid":"x-1","session_id":"s-1"}
+{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"auto","pre_tokens":150000},"uuid":"x-2","session_id":"s-1"}
+{"type":"tool_progress","tool_use_id":"toolu_01","tool_name":"Bash","elapsed_time_seconds":2}
