@@ -17,13 +17,13 @@ You need Claude Code 2.1.330 or newer and a recent Minga; see [Supported version
 2. Add the extension to your Minga config:
 
    ```elixir
-   extension :claude_bridge, git: "https://github.com/jsmestad/minga-claude-bridge"
+   extension :claude_bridge, hex: "minga_claude_bridge", app: :minga_claude_bridge, version: "~> 0.1"
    ```
 
-   After the first Hex release, you can install a versioned package instead:
+   Minga needs `app:` because the extension name (`claude_bridge`) differs from the Hex package name. To track the latest unreleased code instead, install from git:
 
    ```elixir
-   extension :claude_bridge, hex: "minga_claude_bridge", version: "~> 0.1"
+   extension :claude_bridge, git: "https://github.com/jsmestad/minga-claude-bridge"
    ```
 
 3. Restart Minga and open `/model`. The Claude models appear under **Claude (subscription)** with your plan, for example "Claude Pro". Select one, or use `/model claude_bridge:sonnet`.

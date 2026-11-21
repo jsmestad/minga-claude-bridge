@@ -43,7 +43,7 @@ The bridge compiles against `minga_sdk`. Publish the SDK first, from `sdk/` in j
 6. **Verify the install.** In a Minga without a checkout of either repo, declare only:
 
    ```elixir
-   extension :claude_bridge, hex: "minga_claude_bridge", version: "~> 0.1"
+   extension :claude_bridge, hex: "minga_claude_bridge", app: :minga_claude_bridge, version: "~> 0.1"
    ```
 
    `:extensions` lists `claude_bridge [running] (hex: minga_claude_bridge)`, `/model` shows "Claude (subscription)", and a prompt streams a reply. Record the commands and output in the release PR.
