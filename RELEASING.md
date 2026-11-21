@@ -14,13 +14,13 @@ The bridge compiles against `minga_sdk`. Publish the SDK first, from `sdk/` in j
    - Set `@version` in `mix.exs` and the version in `lib/minga_claude_bridge/version.ex`. The version test fails when they disagree.
    - Move the `Unreleased` entry in `CHANGELOG.md` to the new version with today's date, and add the link for the tag.
 
-3. **Switch `minga_sdk` to Hex.** Replace the git dependency in `mix.exs` with the Hex line from its `TODO(release)` comment:
+3. **Check the `minga_sdk` dependency.** It must stay the Hex line with `only: [:dev, :test]`:
 
    ```elixir
    {:minga_sdk, "~> 0.1", only: [:dev, :test], runtime: false},
    ```
 
-   Keep `only: [:dev, :test]`. Minga provides the real modules at runtime. Without `only`, `minga_sdk` becomes a runtime dependency, and installing the bridge in Minga compiles SDK stubs that shadow Minga's modules. Run `mix deps.get`, then the checks: `mix compile --warnings-as-errors`, `mix credo --strict`, `mix test`, `mix format --check-formatted`.
+   Minga provides the real modules at runtime. Without `only`, `minga_sdk` becomes a runtime dependency, and installing the bridge in Minga compiles SDK stubs that shadow Minga's modules. If the bridge needs a newer SDK, publish that SDK first and raise the requirement here.
 
 4. **Build and review the package.**
 

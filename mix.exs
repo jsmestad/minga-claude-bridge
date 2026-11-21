@@ -54,18 +54,7 @@ defmodule MingaClaudeBridge.MixProject do
       # stay out of the package's runtime dependencies: with it, Mix.install in the editor would
       # compile stubs that shadow Minga's real modules. Hex leaves `only: [:dev, :test]` deps out
       # of the package metadata.
-      #
-      # TODO(release): minga_sdk 0.1.0 is not on Hex yet. Before `mix hex.publish`, replace the git
-      # dependency below with exactly:
-      #
-      #     {:minga_sdk, "~> 0.1", only: [:dev, :test], runtime: false},
-      #
-      {:minga_sdk,
-       git: "https://github.com/jsmestad/minga",
-       branch: "main",
-       sparse: "sdk",
-       only: [:dev, :test],
-       runtime: false},
+      {:minga_sdk, "~> 0.1", only: [:dev, :test], runtime: false},
       {:stream_data, "~> 1.1", only: [:dev, :test]},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false}
