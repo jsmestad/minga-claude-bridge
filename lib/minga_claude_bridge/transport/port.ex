@@ -20,6 +20,7 @@ defmodule MingaClaudeBridge.Transport.Port do
     * `:binary` - extra options for `MingaClaudeBridge.Binary.resolve/1`, for tests.
     * `:parent_env` - the environment to start from. Defaults to `System.get_env/0`.
     * `:credential_env` - the route credential's `env` map. Defaults to `%{}`.
+    * `:os_user` - the login name used for a missing `USER` or `LOGNAME` (see `MingaClaudeBridge.Env`). Defaults to `MingaClaudeBridge.OsUser.name/0`.
     * `:session_key` - names the working directory; use a stable key per conversation so `--resume` finds its session. Defaults to a random key.
     * `:workdir_base` - the private base directory. Defaults to `MingaClaudeBridge.Workdir.base_path/0`.
     * `:max_line_bytes`, `:kill_grace_ms` - see above.

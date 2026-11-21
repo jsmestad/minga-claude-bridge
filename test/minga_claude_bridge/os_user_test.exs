@@ -9,7 +9,8 @@ defmodule MingaClaudeBridge.OsUserTest do
     assert OsUser.name() == String.trim(expected)
   end
 
-  test "returns the same cached value on later calls" do
-    assert OsUser.name() == OsUser.name()
+  test "caches the name after the first call" do
+    name = OsUser.name()
+    assert :persistent_term.get({OsUser, :name}) == name
   end
 end
