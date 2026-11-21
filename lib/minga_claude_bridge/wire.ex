@@ -71,6 +71,9 @@ defmodule MingaClaudeBridge.Wire do
   @typedoc "A JSON-RPC 2.0 request id."
   @type jsonrpc_id :: String.t() | integer()
 
+  @typedoc "The id of a JSON-RPC 2.0 error reply. It is `nil` (JSON `null`) when the request id could not be read."
+  @type error_id :: jsonrpc_id() | nil
+
   @doc "Decodes one stream-json line. A trailing newline is allowed."
   @spec decode(binary()) :: {:ok, frame()} | {:error, decode_error()}
   def decode(line) when is_binary(line) do
@@ -175,9 +178,9 @@ defmodule MingaClaudeBridge.Wire do
   @doc """
   Encodes a successful answer to an `mcp_message` control request whose JSON-RPC reply is an error, for example code `-32800` for a cancelled request.
 
-  The control request itself succeeds; the JSON-RPC error tells the MCP client that the call failed.
+  The control request itself succeeds; the JSON-RPC error tells the MCP client that the call failed. `jsonrpc_id` is `nil` when the request id could not be read, which encodes as JSON `null`.
   """
-  @spec mcp_error(String.t(), jsonrpc_id(), integer(), String.t()) :: line()
+  @spec mcp_error(String.t(), error_id(), integer(), String.t()) :: line()
   def mcp_error(request_id, jsonrpc_id, code, message)
       when is_binary(request_id) and is_integer(code) and is_binary(message) do
     control_success(request_id, %{

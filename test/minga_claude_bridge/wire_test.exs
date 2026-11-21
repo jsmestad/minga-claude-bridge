@@ -401,6 +401,12 @@ defmodule MingaClaudeBridge.WireTest do
              }
     end
 
+    test "mcp_error/4 encodes an unreadable request id as null" do
+      assert JSON.decode!(Wire.mcp_error("req_1", nil, -32_600, "Invalid Request"))["response"][
+               "response"
+             ]["mcp_response"]["id"] == nil
+    end
+
     test "control_error/2 writes an error response" do
       assert JSON.decode!(Wire.control_error("req_4", "unsupported")) == %{
                "type" => "control_response",
