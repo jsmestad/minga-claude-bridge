@@ -36,6 +36,8 @@ Each Minga conversation gets one long-running Claude Code process. Follow-up mes
 
 Sometimes Claude Code cannot follow a change: you edit or branch the history, reset or compact it, or change the model, effort, instructions, or tools. Then the bridge starts a fresh Claude Code process and carries the earlier conversation over as one transcript message. That import is lossy: earlier thinking and images are left out, and earlier tool calls appear as text. Summary and title requests run in a separate short-lived process with no tools.
 
+Stopping a turn keeps the partial reply and ends that Claude Code process at once. The next message then starts a fresh process the same way, because the stopped prompt is already in the old process's history.
+
 ## Limits
 
 Requests through the bridge count against your Claude plan, exactly like using Claude Code yourself. When you reach a plan limit, the turn fails with "Your Claude plan limit is reached. It resets at …", and `/model` shows the route as unavailable until that reset time.

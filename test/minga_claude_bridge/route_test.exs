@@ -319,14 +319,15 @@ defmodule MingaClaudeBridge.RouteTest do
       assert started().opts[:launch][:effort] == "low"
     end
 
-    test "cancel aborts the turn", %{config: config} do
+    test "cancel stops the conversation's Claude Code process", %{config: config} do
       {:ok, %Response{cancel: cancel}} = Route.stream(request([user("hello")]), config)
       cc = started()
       _prompt = written(cc)
       push(cc, system_init())
 
       assert :ok = cancel.()
-      assert %{"request" => %{"subtype" => "interrupt"}} = written(cc)
+      ref = cc.ref
+      assert_receive {:scripted_stopped, ^ref, _reason}
       assert :ok = cancel.()
     end
 
@@ -357,18 +358,12 @@ defmodule MingaClaudeBridge.RouteTest do
       assert user_text(written(first)) == "long task"
       push(first, system_init())
       assert :ok = cancel.()
-      assert %{"request" => %{"subtype" => "interrupt"}} = written(first)
-
-      # Claude Code ends the interrupted turn, so the session is idle again and could be continued.
-      push(first, %{"type" => "result", "subtype" => "success", "is_error" => false})
-      assert MingaClaudeBridge.Session.phase(first.session) == :idle
+      first_ref = first.ref
+      assert_receive {:scripted_stopped, ^first_ref, _reason}
 
       # Minga keeps the stopped prompt without a reply and adds the next one.
       retry = messages ++ [user("try again")]
       _response = Route.stream(request(retry), config)
-
-      first_ref = first.ref
-      assert_receive {:scripted_stopped, ^first_ref, _reason}
       fresh = started()
       prompt = user_text(written(fresh))
       assert prompt =~ "<transcript>"

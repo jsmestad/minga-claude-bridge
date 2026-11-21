@@ -20,7 +20,7 @@ defmodule MingaClaudeBridge.Route do
 
   ## Streams
 
-  `stream/1` sends the request to the session with the calling process as the subscriber and returns a lazy stream that drains the session's `{ref, event}` messages in that process. The session monitors the subscriber, so a consumer that exits aborts the turn. `cancel` aborts the turn as well.
+  `stream/1` sends the request to the session with the calling process as the subscriber and returns a lazy stream that drains the session's `{ref, event}` messages in that process. The session monitors the subscriber, so a consumer that exits aborts the turn. `cancel`, which Minga calls when the user stops a turn or the consumer exits early, stops the conversation's Claude Code process; the next request starts a fresh one.
   """
 
   @behaviour MingaAgent.InferenceRoute
@@ -384,9 +384,11 @@ defmodule MingaClaudeBridge.Route do
         end
       )
 
+    # A stopped turn leaves no Claude Code process behind. The next request
+    # starts fresh anyway, because Claude Code's transcript holds the stopped prompt.
     cancel = fn ->
       if record, do: record.(session, :failed)
-      abort(session, ref)
+      stop_session(session)
       cleanup.()
       :ok
     end
@@ -457,12 +459,6 @@ defmodule MingaClaudeBridge.Route do
 
   defp remember(session, history) do
     Session.remember(session, history)
-  catch
-    :exit, _session_gone -> :ok
-  end
-
-  defp abort(session, ref) do
-    Session.abort(session, ref)
   catch
     :exit, _session_gone -> :ok
   end
