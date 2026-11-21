@@ -82,19 +82,19 @@ defmodule MingaClaudeBridge.LiveClaudeTest do
 
     {:ok, executable} = Binary.resolve()
 
+    # Drop CLAUDE_CONFIG_DIR and XDG_CONFIG_HOME so Claude Code reads only the fake HOME, never the real config.
+    parent_env =
+      System.get_env()
+      |> Map.drop(["CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME"])
+      |> Map.put("HOME", home)
+
     session =
       start_supervised!({Session,
-       transport:
-         {
-           PortTransport,
-           # Drop CLAUDE_CONFIG_DIR and XDG_CONFIG_HOME so Claude Code reads only the fake HOME, never the real config.
-           executable: executable,
-           parent_env:
-             System.get_env()
-             |> Map.drop(["CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME"])
-             |> Map.put("HOME", home),
-           workdir_base: Path.join(home, "work")
-         },
+       transport: {
+         PortTransport,
+         # Drop CLAUDE_CONFIG_DIR and XDG_CONFIG_HOME so Claude Code reads only the fake HOME, never the real config.
+         executable: executable, parent_env: parent_env, workdir_base: Path.join(home, "work")
+       },
        model: "haiku",
        min_version: Launch.min_version(),
        startup_timeout: 60_000})
