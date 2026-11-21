@@ -75,6 +75,50 @@ defmodule MingaClaudeBridge.EnvTest do
     end
   end
 
+  describe "missing USER and LOGNAME" do
+    # Claude Code looks up its login by user name; without USER it reports itself signed out.
+    test "are filled from the OS user when the parent lacks them" do
+      env = Env.final_env(Map.drop(@parent, ["USER", "LOGNAME"]), %{}, os_user: "justin")
+      assert env["USER"] == "justin"
+      assert env["LOGNAME"] == "justin"
+    end
+
+    test "keep the parent's values when present" do
+      parent = Map.merge(@parent, %{"USER" => "alice", "LOGNAME" => "alice"})
+      env = Env.final_env(parent, %{}, os_user: "justin")
+      assert env["USER"] == "alice"
+      assert env["LOGNAME"] == "alice"
+    end
+
+    test "fill only the one that is missing" do
+      parent = @parent |> Map.drop(["LOGNAME"]) |> Map.put("USER", "alice")
+      env = Env.final_env(parent, %{}, os_user: "justin")
+      assert env["USER"] == "alice"
+      assert env["LOGNAME"] == "justin"
+    end
+
+    test "the credential wins, including an empty value that removes the variable" do
+      parent = Map.drop(@parent, ["USER", "LOGNAME"])
+      env = Env.final_env(parent, %{"USER" => "bob", "LOGNAME" => ""}, os_user: "justin")
+      assert env["USER"] == "bob"
+      refute Map.has_key?(env, "LOGNAME")
+    end
+
+    test "stay missing when the OS user is unknown" do
+      env = Env.final_env(Map.drop(@parent, ["USER", "LOGNAME"]), %{}, os_user: nil)
+      refute Map.has_key?(env, "USER")
+      refute Map.has_key?(env, "LOGNAME")
+    end
+
+    test "reach the port env as settings" do
+      {:ok, port_env} =
+        Env.child_env(Map.drop(@parent, ["USER", "LOGNAME"]), %{}, os_user: "justin")
+
+      assert {~c"USER", ~c"justin"} in port_env
+      assert {~c"LOGNAME", ~c"justin"} in port_env
+    end
+  end
+
   describe "step 3: forced variables" do
     test "override the parent and the credential" do
       env = final(%{"MCP_TOOL_TIMEOUT" => "5", "ENABLE_TOOL_SEARCH" => "true"})

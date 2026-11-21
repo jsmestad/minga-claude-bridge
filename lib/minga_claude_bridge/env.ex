@@ -5,7 +5,7 @@ defmodule MingaClaudeBridge.Env do
   The child must use Claude Code's own login and settings, never Minga's provider keys or the configuration of a parent Claude Code session. `child_env/2` builds the environment in three steps:
 
     1. Start from the parent environment and remove every variable in `stripped?/1`: `ANTHROPIC_*`, `AWS_*`, `NODE_*`, the Bedrock, Vertex, and Foundry switches, the variables a parent Claude Code session sets on its children, and Minga's provider key variables.
-    2. Apply the route credential's `env` entry. An empty value removes the variable. `HOME`, `CLAUDE_CONFIG_DIR`, and `USERPROFILE` are rejected, because the bridge reads Claude Code's session files through the parent's values.
+    2. Apply the route credential's `env` entry. An empty value removes the variable. `HOME`, `CLAUDE_CONFIG_DIR`, and `USERPROFILE` are rejected, because the bridge reads Claude Code's session files through the parent's values. Then, when `USER` or `LOGNAME` is still missing and the credential does not mention it, set it to the `:os_user` option: Claude Code looks up its login by user name and reports itself signed out without one.
     3. Force the variables in `forced/0`, which keep Claude Code from compacting on its own, loading claude.ai MCP servers, sending non-essential traffic, cutting MCP tool descriptions, deferring tools behind tool search, or timing out a tool call Minga is still running.
 
   The result is in the format of the `:env` option of `Port.open/2`: charlist pairs, with `false` for a variable to remove. A Port applies `:env` on top of the inherited environment, so every removal is explicit.
@@ -52,25 +52,33 @@ defmodule MingaClaudeBridge.Env do
 
   @type error :: {:forbidden_env, [String.t()]} | {:invalid_env, [String.t()]}
 
+  @typedoc "`:os_user` is the login name used for a missing `USER` or `LOGNAME`, or nil to leave them missing."
+  @type option :: {:os_user, String.t() | nil}
+
+  @user_vars ~w(USER LOGNAME)
+
   @doc """
   Builds the child environment from the parent environment and the credential's `env` entry.
 
   Returns `{:error, {:forbidden_env, keys}}` when the credential sets `HOME`, `CLAUDE_CONFIG_DIR`, or `USERPROFILE`, and `{:error, {:invalid_env, keys}}` for a credential key that is empty or contains `=` or a NUL byte, or a value that contains a NUL byte. Error reasons name keys, never values.
   """
-  @spec child_env(env_map(), env_map()) :: {:ok, port_env()} | {:error, error()}
-  def child_env(parent, credential) when is_map(parent) and is_map(credential) do
+  @spec child_env(env_map(), env_map(), [option()]) :: {:ok, port_env()} | {:error, error()}
+  def child_env(parent, credential, opts \\ [])
+      when is_map(parent) and is_map(credential) and is_list(opts) do
     with :ok <- check_credential(credential) do
-      final = final_env(parent, credential)
+      final = final_env(parent, credential, opts)
       {:ok, to_port_env(parent, final)}
     end
   end
 
   @doc "Returns the final environment as a map, after the same three steps as `child_env/2`."
-  @spec final_env(env_map(), env_map()) :: env_map()
-  def final_env(parent, credential) when is_map(parent) and is_map(credential) do
+  @spec final_env(env_map(), env_map(), [option()]) :: env_map()
+  def final_env(parent, credential, opts \\ [])
+      when is_map(parent) and is_map(credential) and is_list(opts) do
     parent
     |> Map.reject(fn {name, _value} -> stripped?(name) end)
     |> apply_credential(credential)
+    |> fill_user(credential, Keyword.get(opts, :os_user))
     |> Map.merge(@forced)
   end
 
@@ -117,6 +125,16 @@ defmodule MingaClaudeBridge.Env do
     Enum.reduce(credential, env, fn
       {name, ""}, env -> Map.delete(env, name)
       {name, value}, env -> Map.put(env, name, value)
+    end)
+  end
+
+  defp fill_user(env, _credential, nil), do: env
+
+  defp fill_user(env, credential, os_user) when is_binary(os_user) do
+    Enum.reduce(@user_vars, env, fn name, env ->
+      if Map.has_key?(env, name) or Map.has_key?(credential, name),
+        do: env,
+        else: Map.put(env, name, os_user)
     end)
   end
 

@@ -30,7 +30,7 @@ defmodule MingaClaudeBridge.Transport.Port do
 
   @behaviour MingaClaudeBridge.Transport
 
-  alias MingaClaudeBridge.{Binary, DebugLog, Env, Launch, LineBuffer, OsProcess, Workdir}
+  alias MingaClaudeBridge.{Binary, DebugLog, Env, Launch, LineBuffer, OsProcess, OsUser, Workdir}
 
   @port_line_bytes 65_536
   @default_kill_grace_ms 500
@@ -93,7 +93,10 @@ defmodule MingaClaudeBridge.Transport.Port do
 
     with {:ok, path} <- executable(opts, parent_env),
          {:ok, argv} <- Launch.argv(Keyword.get(opts, :launch, [])),
-         {:ok, env} <- Env.child_env(parent_env, Keyword.get(opts, :credential_env, %{})),
+         {:ok, env} <-
+           Env.child_env(parent_env, Keyword.get(opts, :credential_env, %{}),
+             os_user: Keyword.get_lazy(opts, :os_user, &OsUser.name/0)
+           ),
          {:ok, workdir} <- Workdir.create(base, key),
          {:ok, port, os_pid} <- open(path, argv, env, workdir) do
       debug =

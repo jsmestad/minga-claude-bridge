@@ -187,6 +187,29 @@ defmodule MingaClaudeBridge.Transport.PortTest do
       refute File.exists?(t.workdir)
     end
 
+    test "a parent without USER or LOGNAME gets the OS user, so Claude Code finds its login",
+         ctx do
+      parent =
+        System.get_env()
+        |> Map.drop(["USER", "LOGNAME"])
+        |> Map.put("FAKE_CLAUDE_DUMP", ctx.dump)
+
+      t = start_transport(ctx, %{}, parent_env: parent, os_user: "bridge-test-user")
+      dumped_pid(ctx.dump)
+
+      env =
+        ctx.dump
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Map.new(fn line -> line |> String.split("=", parts: 2) |> List.to_tuple() end)
+
+      assert env["USER"] == "bridge-test-user"
+      assert env["LOGNAME"] == "bridge-test-user"
+
+      PortTransport.stop(t.pid, :normal)
+      assert gone?(t.os_pid)
+    end
+
     test "stop closes stdin and the child exits; stop is idempotent", ctx do
       t = start_transport(ctx)
       monitor = Process.monitor(t.pid)

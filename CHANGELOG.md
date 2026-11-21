@@ -2,6 +2,12 @@
 
 All notable changes to `minga_claude_bridge` are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Claude Code no longer looks signed out when Minga starts without `USER` or `LOGNAME`. The bridge fills a missing value from the operating-system user; a value in `routes.claude_bridge.env` still wins.
+
 ## [0.1.0] - 2026-11-21
 
 The first release. It runs the Claude models of your Claude subscription inside Minga's agent through the `claude` CLI you already have installed and signed in. Minga keeps running the agent: its tools, approvals, and transcript.
