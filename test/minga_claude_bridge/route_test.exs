@@ -18,6 +18,7 @@ defmodule MingaClaudeBridge.RouteTest do
     registry = :"route_test_registry_#{System.unique_integer([:positive])}"
     start_supervised!({Registry, keys: :unique, name: registry})
     supervisor = start_supervised!({DynamicSupervisor, strategy: :one_for_one})
+    tasks = start_supervised!({Task.Supervisor, []})
 
     status =
       start_supervised!(
@@ -34,7 +35,8 @@ defmodule MingaClaudeBridge.RouteTest do
         transport: {Scripted, controller: test},
         registry: registry,
         supervisor: supervisor,
-        status: status
+        status: status,
+        tasks: tasks
       )
 
     %{config: config}
@@ -460,6 +462,19 @@ defmodule MingaClaudeBridge.RouteTest do
 
       assert_receive {:reported_usage, :reporter,
                       [%{kind: "five_hour", utilization: 0.42, status: :allowed}]}
+    end
+
+    test "the usage refresh runs under the task supervisor and stops with it", %{config: config} do
+      {_events, cc, _line} = first_turn(config, [user("hello")], text_reply("Hi"))
+
+      # The refresh waits for an answer that never comes, as a child of the bridge's task supervisor.
+      ref = cc.ref
+      assert_receive {:scripted_line, ^ref, _get_usage}
+      assert [refresh] = Task.Supervisor.children(config.tasks)
+      monitor = Process.monitor(refresh)
+
+      assert :ok = stop_supervised(Task.Supervisor)
+      assert_receive {:DOWN, ^monitor, :process, ^refresh, _reason}
     end
 
     test "a turn that ends with tool calls does not refresh usage", %{config: config} do
