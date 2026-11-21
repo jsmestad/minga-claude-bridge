@@ -20,6 +20,7 @@ defmodule MingaClaudeBridge.Transport.Port do
     * `:binary` - extra options for `MingaClaudeBridge.Binary.resolve/1`, for tests.
     * `:parent_env` - the environment to start from. Defaults to `System.get_env/0`.
     * `:credential_env` - the route credential's `env` map. Defaults to `%{}`.
+    * `:os_user` - the login name used for a missing `USER` or `LOGNAME` (see `MingaClaudeBridge.Env`). Defaults to `MingaClaudeBridge.OsUser.name/0`.
     * `:session_key` - names the working directory; use a stable key per conversation so `--resume` finds its session. Defaults to a random key.
     * `:workdir_base` - the private base directory. Defaults to `MingaClaudeBridge.Workdir.base_path/0`.
     * `:max_line_bytes`, `:kill_grace_ms` - see above.
@@ -30,7 +31,7 @@ defmodule MingaClaudeBridge.Transport.Port do
 
   @behaviour MingaClaudeBridge.Transport
 
-  alias MingaClaudeBridge.{Binary, DebugLog, Env, Launch, LineBuffer, OsProcess, Workdir}
+  alias MingaClaudeBridge.{Binary, DebugLog, Env, Launch, LineBuffer, OsProcess, OsUser, Workdir}
 
   @port_line_bytes 65_536
   @default_kill_grace_ms 500
@@ -93,7 +94,10 @@ defmodule MingaClaudeBridge.Transport.Port do
 
     with {:ok, path} <- executable(opts, parent_env),
          {:ok, argv} <- Launch.argv(Keyword.get(opts, :launch, [])),
-         {:ok, env} <- Env.child_env(parent_env, Keyword.get(opts, :credential_env, %{})),
+         {:ok, env} <-
+           Env.child_env(parent_env, Keyword.get(opts, :credential_env, %{}),
+             os_user: Keyword.get_lazy(opts, :os_user, &OsUser.name/0)
+           ),
          {:ok, workdir} <- Workdir.create(base, key),
          {:ok, port, os_pid} <- open(path, argv, env, workdir) do
       debug =
