@@ -12,7 +12,8 @@ defmodule MingaClaudeBridge.LaunchTest do
           {"--input-format", "stream-json"},
           {"--tools", ""},
           {"--allowedTools", "mcp__minga__*"},
-          {"--setting-sources", ""}
+          {"--setting-sources", ""},
+          {"--thinking-display", "summarized"}
         ] do
       index = Enum.find_index(argv, &(&1 == flag))
       assert Enum.at(argv, index + 1) == value, flag

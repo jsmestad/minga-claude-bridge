@@ -2,7 +2,7 @@ defmodule MingaClaudeBridge.Launch do
   @moduledoc """
   Builds the `claude` command-line arguments for one session.
 
-  Every launch carries the fixed flags in `fixed_args/0`. They select the stream-json protocol on stdin and stdout with partial messages, and restrict what Claude Code loads: no built-in tools (`--tools ""`), only Minga's MCP tools allowed (`--allowedTools mcp__minga__*`), no MCP servers from `~/.claude.json` or `.mcp.json` (`--strict-mcp-config`), no settings files and so no hooks or plugins (`--setting-sources ""`), and no skills or slash commands (`--disable-slash-commands`).
+  Every launch carries the fixed flags in `fixed_args/0`. They select the stream-json protocol on stdin and stdout with partial messages, and restrict what Claude Code loads: no built-in tools (`--tools ""`), only Minga's MCP tools allowed (`--allowedTools mcp__minga__*`), no MCP servers from `~/.claude.json` or `.mcp.json` (`--strict-mcp-config`), no settings files and so no hooks or plugins (`--setting-sources ""`), and no skills or slash commands (`--disable-slash-commands`). `--thinking-display summarized` makes Claude Code stream thinking text; without it, 2.1.330 streams thinking blocks with empty text (pi-claude-bridge does the same, see anthropics/claude-agent-sdk-python#830).
 
   ## Verified CLI version
 
@@ -35,7 +35,9 @@ defmodule MingaClaudeBridge.Launch do
     "--strict-mcp-config",
     "--setting-sources",
     "",
-    "--disable-slash-commands"
+    "--disable-slash-commands",
+    "--thinking-display",
+    "summarized"
   ]
 
   @type opts :: [

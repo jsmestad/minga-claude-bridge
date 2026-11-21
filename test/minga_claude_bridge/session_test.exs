@@ -734,6 +734,55 @@ defmodule MingaClaudeBridge.SessionTest do
   end
 
   describe "lifecycle" do
+    test "await_ready answers when startup completes" do
+      ctx = start_session()
+      task = Task.async(fn -> Session.await_ready(ctx.session, 5_000) end)
+      push(ctx, init_response())
+      assert {:ok, %{claude_code_version: "2.1.330"}} = Task.await(task)
+    end
+
+    test "await_ready answers with the reason when startup fails" do
+      dead = start_session(min_version: "9.0.0")
+      task = Task.async(fn -> Session.await_ready(dead.session, 5_000) end)
+      push(dead, init_response())
+      assert {:error, {:unsupported_version, "2.1.330"}} = Task.await(task)
+    end
+
+    test "an unlinked session with an owner stops when the owner exits" do
+      test = self()
+
+      owner =
+        spawn(fn ->
+          {:ok, session} =
+            Session.start(transport: {Scripted, controller: test}, owner: self())
+
+          send(test, {:session, session})
+          receive do: (:never -> :ok)
+        end)
+
+      assert_receive {:session, session}
+      assert_receive {:scripted_started, ref, ^session, _opts}
+      monitor = Process.monitor(session)
+      Process.exit(owner, :kill)
+      assert_receive {:DOWN, ^monitor, :process, ^session, :normal}
+      assert_receive {:scripted_stopped, ^ref, _reason}
+    end
+
+    test "seen and remember hold the history a session has seen" do
+      ctx = ready()
+      assert MingaClaudeBridge.History.seen_count(Session.seen(ctx.session)) == 0
+
+      history =
+        MingaClaudeBridge.History.record(MingaClaudeBridge.History.new(), %{
+          entries: [%{role: :user, digest_input: "hi"}],
+          fingerprint: %{system_prompt: nil, tools: [], model: "m"}
+        })
+
+      assert :ok = Session.remember(ctx.session, history)
+      assert Session.seen(ctx.session) == history
+      assert Keyword.keyword?(Session.launch(ctx.session))
+    end
+
     test "the idle timeout stops the transport and the session" do
       ctx = ready()
       monitor = Process.monitor(ctx.session)

@@ -17,6 +17,7 @@ defmodule MingaClaudeBridge.Transport.Port do
   Besides the `:owner`, `:ref`, and `:launch` options every transport gets:
 
     * `:executable` - an absolute path to run instead of resolving `claude`.
+    * `:binary` - extra options for `MingaClaudeBridge.Binary.resolve/1`, for tests.
     * `:parent_env` - the environment to start from. Defaults to `System.get_env/0`.
     * `:credential_env` - the route credential's `env` map. Defaults to `%{}`.
     * `:session_key` - names the working directory; use a stable key per conversation so `--resume` finds its session. Defaults to a random key.
@@ -182,7 +183,7 @@ defmodule MingaClaudeBridge.Transport.Port do
   defp executable(opts, parent_env) do
     case Keyword.get(opts, :executable) do
       nil ->
-        Binary.resolve(env: parent_env)
+        Binary.resolve([env: parent_env] ++ Keyword.get(opts, :binary, []))
 
       path ->
         if Path.type(path) == :absolute,
