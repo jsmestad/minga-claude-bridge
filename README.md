@@ -26,7 +26,7 @@ If something is missing, the `/model` row says what to do: install Claude Code, 
 
 ## Models and effort
 
-The model list comes from Claude Code itself, so it matches what your plan offers. If Claude Code cannot start when Minga loads the extension, the list falls back to the `opus`, `sonnet`, and `haiku` aliases.
+The model list comes from Claude Code itself, so it matches what your plan offers. Registering the route never waits for Claude Code: until the bridge has checked Claude Code once (when `/model` checks the route's readiness), and Minga refreshes the route's models, the list shows the `opus`, `sonnet`, and `haiku` aliases.
 
 The thinking level you pick in Minga becomes Claude Code's `--effort`: `low`, `medium`, `high`, `xhigh`, or `max`. Models without effort support show a single `default` level.
 

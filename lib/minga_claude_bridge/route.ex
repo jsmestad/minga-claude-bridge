@@ -40,9 +40,11 @@ defmodule MingaClaudeBridge.Route do
   def models(config) do
     config = Config.load(config)
 
-    case Probe.run(config, %{}) do
-      {:ok, %{models: entries}} -> entries |> to_models() |> with_fallback()
-      {:error, _reason} -> Mapping.fallback_models()
+    # Never start Claude Code here: Minga lists models during registration.
+    # Availability probes record the real list.
+    case Status.models(config.status) do
+      [_ | _] = entries -> entries |> to_models() |> with_fallback()
+      _none -> Mapping.fallback_models()
     end
   end
 
@@ -198,7 +200,9 @@ defmodule MingaClaudeBridge.Route do
 
   defp probe_availability(config, env) do
     case Probe.run(config, env) do
-      {:ok, %{account: account}} ->
+      {:ok, %{account: account} = info} ->
+        Status.put_models(config.status, info.models)
+
         if Probe.signed_in?(account),
           do: {:ready, Probe.plan_label(account)},
           else: {:unavailable, :not_signed_in, @sign_in_remedy}
@@ -243,16 +247,22 @@ defmodule MingaClaudeBridge.Route do
       fingerprint: Mapping.fingerprint(request, effort)
     }
 
-    record = fn session, text, calls ->
-      entries = history_request.entries ++ [Mapping.assistant_entry(text, calls)]
+    # Claude Code keeps every prompt it received, even in a failed or stopped turn.
+    # So anything but a success makes the next request start fresh.
+    record = fn
+      session, {:completed, text, calls} ->
+        entries = history_request.entries ++ [Mapping.assistant_entry(text, calls)]
 
-      history =
-        History.record(History.new(), %{
-          entries: entries,
-          fingerprint: history_request.fingerprint
-        })
+        history =
+          History.record(History.new(), %{
+            entries: entries,
+            fingerprint: history_request.fingerprint
+          })
 
-      remember(session, history)
+        remember(session, history)
+
+      session, :failed ->
+        remember(session, History.new())
     end
 
     case plan(config, conversation_id, request, history_request, tools) do
@@ -353,6 +363,7 @@ defmodule MingaClaudeBridge.Route do
         {:ok, response(config, session, ref, record, cleanup)}
 
       {:error, reason} ->
+        if record, do: record.(session, :failed)
         cleanup.()
         {:ok, failed(reason)}
     end
@@ -374,6 +385,7 @@ defmodule MingaClaudeBridge.Route do
       )
 
     cancel = fn ->
+      if record, do: record.(session, :failed)
       abort(session, ref)
       cleanup.()
       :ok
@@ -391,8 +403,7 @@ defmodule MingaClaudeBridge.Route do
       {^ref, {:finish, reason}} ->
         reason = finish_reason(reason, config)
 
-        if record && success?(reason),
-          do: record.(session, IO.iodata_to_binary(acc.text), Enum.reverse(acc.calls))
+        if record, do: record.(session, outcome(reason, acc))
 
         {[{:finish, reason}], %{acc | done: true}}
 
@@ -410,8 +421,10 @@ defmodule MingaClaudeBridge.Route do
     end
   end
 
-  defp success?({:error, _reason}), do: false
-  defp success?(_reason), do: true
+  defp outcome({:error, _reason}, _acc), do: :failed
+
+  defp outcome(_reason, acc),
+    do: {:completed, IO.iodata_to_binary(acc.text), Enum.reverse(acc.calls)}
 
   defp finish_reason({:error, {:claude_error, _subtype, text}} = error, config)
        when is_binary(text) do

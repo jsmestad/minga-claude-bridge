@@ -42,6 +42,15 @@ defmodule MingaClaudeBridge.Status do
   @spec put(GenServer.server(), term(), availability()) :: :ok
   def put(server, key, availability), do: call(server, {:put, key, availability}, :ok)
 
+  @doc "Returns the model entries of Claude Code's last `initialize` answer, or `nil` before the first probe or when the server is not running."
+  @spec models(GenServer.server()) :: [map()] | nil
+  def models(server), do: call(server, :models, nil)
+
+  @doc "Records the model entries of a probe."
+  @spec put_models(GenServer.server(), [map()]) :: :ok
+  def put_models(server, models) when is_list(models),
+    do: call(server, {:put_models, models}, :ok)
+
   @doc "Returns the latest rate-limit event, or `nil`."
   @spec latest_rate_limit(GenServer.server()) :: RateLimit.t() | nil
   def latest_rate_limit(server), do: call(server, :latest_rate_limit, nil)
@@ -78,7 +87,8 @@ defmodule MingaClaudeBridge.Status do
        cache: %{},
        label: nil,
        limited: false,
-       rate_limit: nil
+       rate_limit: nil,
+       models: nil
      }}
   end
 
@@ -108,6 +118,10 @@ defmodule MingaClaudeBridge.Status do
   end
 
   def handle_call(:latest_rate_limit, _from, state), do: {:reply, state.rate_limit, state}
+  def handle_call(:models, _from, state), do: {:reply, state.models, state}
+
+  def handle_call({:put_models, models}, _from, state),
+    do: {:reply, :ok, %{state | models: models}}
 
   @impl true
   def handle_cast({:rate_limit, rate_limit}, state), do: {:noreply, record(state, rate_limit)}

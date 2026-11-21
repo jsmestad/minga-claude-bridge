@@ -349,6 +349,59 @@ defmodule MingaClaudeBridge.RouteTest do
       assert Registry.select(config.registry, [{{:_, :"$1", :_}, [], [:"$1"]}]) == []
     end
 
+    test "after a cancelled turn the next request starts fresh", %{config: config} do
+      {_events, first, _line} = first_turn(config, [user("hello")], text_reply("Hi"))
+
+      messages = [user("hello"), assistant([{:text, "Hi"}]), user("long task")]
+      {:ok, %Response{cancel: cancel}} = Route.stream(request(messages), config)
+      assert user_text(written(first)) == "long task"
+      push(first, system_init())
+      assert :ok = cancel.()
+      assert %{"request" => %{"subtype" => "interrupt"}} = written(first)
+
+      # Claude Code ends the interrupted turn, so the session is idle again and could be continued.
+      push(first, %{"type" => "result", "subtype" => "success", "is_error" => false})
+      assert MingaClaudeBridge.Session.phase(first.session) == :idle
+
+      # Minga keeps the stopped prompt without a reply and adds the next one.
+      retry = messages ++ [user("try again")]
+      _response = Route.stream(request(retry), config)
+
+      first_ref = first.ref
+      assert_receive {:scripted_stopped, ^first_ref, _reason}
+      fresh = started()
+      prompt = user_text(written(fresh))
+      assert prompt =~ "<transcript>"
+      assert prompt =~ "long task"
+      assert String.ends_with?(prompt, "try again")
+    end
+
+    test "after an error finish a retry of the same messages starts fresh", %{config: config} do
+      {_events, first, _line} = first_turn(config, [user("hello")], text_reply("Hi"))
+
+      messages = [user("hello"), assistant([{:text, "Hi"}]), user("again")]
+      response = Route.stream(request(messages), config)
+      _prompt = written(first)
+
+      push(first, [
+        system_init(),
+        %{
+          "type" => "result",
+          "subtype" => "success",
+          "is_error" => true,
+          "result" => "Overloaded"
+        }
+      ])
+
+      assert [{:finish, {:error, {:claude_error, :success, "Overloaded"}}}] = events!(response)
+
+      _retry = Route.stream(request(messages), config)
+      first_ref = first.ref
+      assert_receive {:scripted_stopped, ^first_ref, _reason}
+      fresh = started()
+      assert user_text(written(fresh)) =~ "<transcript>"
+    end
+
     test "a dead session is replaced by the next request", %{config: config} do
       {_events, old, _line} = first_turn(config, [user("hello")], text_reply("Hi"))
       Scripted.exit(old.session, old.ref, 1)
@@ -450,15 +503,17 @@ defmodule MingaClaudeBridge.RouteTest do
   end
 
   describe "models/1" do
-    test "falls back to aliases when Claude Code cannot be probed", %{config: config} do
-      models =
-        Route.models(
-          transport: {Scripted, controller: self(), fail_start: :claude_not_found},
-          status: config.status
-        )
+    test "lists the aliases without starting Claude Code before any probe", %{config: config} do
+      models = Route.models(transport: {Scripted, controller: self()}, status: config.status)
 
       assert Enum.map(models, & &1.id) == ["opus", "sonnet", "haiku"]
       assert Enum.all?(models, &(&1.cost == :subscription and &1.tools?))
+      refute_received {:scripted_started, _ref, _session, _opts}
+    end
+
+    test "lists the models of the last probe", %{config: config} do
+      Status.put_models(config.status, [%{"value" => "haiku", "displayName" => "Haiku 5.5"}])
+      assert [%{id: "haiku", display_name: "Haiku 5.5"}] = Route.models(status: config.status)
     end
   end
 end

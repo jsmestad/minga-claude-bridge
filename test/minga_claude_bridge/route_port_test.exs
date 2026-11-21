@@ -95,10 +95,9 @@ defmodule MingaClaudeBridge.RoutePortTest do
     end
   end
 
-  test "models/1 reads the models from Claude Code's initialize answer", ctx do
-    {PortTransport, transport_opts} = config(ctx, %{}).transport
-
-    models = Route.models(transport: {PortTransport, transport_opts}, status: ctx.status)
+  test "models/1 lists the models from the last availability probe", ctx do
+    assert {:ready, _label} = Route.availability("claude_bridge", nil, config(ctx, %{}))
+    models = Route.models(status: ctx.status)
 
     assert [
              %{
