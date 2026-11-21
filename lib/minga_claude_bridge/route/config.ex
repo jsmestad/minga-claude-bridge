@@ -8,6 +8,8 @@ defmodule MingaClaudeBridge.Route.Config do
     * `:registry`, `:supervisor`, `:status` - the conversation registry, the session supervisor, and the status server started by `MingaClaudeBridge.Supervisor`.
     * `:session_opts` - extra `MingaClaudeBridge.Session` options, for example `:idle_timeout`.
     * `:probe_timeout` - milliseconds a probe waits for Claude Code's `initialize` answer.
+    * `:measure_deadline` - milliseconds a background measurement (plan usage and context windows) may run, including its own Claude Code startup.
+    * `:window_ttl` - milliseconds a measured context window stays fresh. Defaults to 24 hours.
     * `:availability_ttl` - milliseconds an availability result is reused.
   """
 
@@ -18,6 +20,8 @@ defmodule MingaClaudeBridge.Route.Config do
           status: GenServer.server(),
           session_opts: keyword(),
           probe_timeout: pos_integer(),
+          measure_deadline: pos_integer(),
+          window_ttl: non_neg_integer(),
           availability_ttl: non_neg_integer()
         }
 
@@ -27,6 +31,8 @@ defmodule MingaClaudeBridge.Route.Config do
             status: MingaClaudeBridge.Status,
             session_opts: [],
             probe_timeout: 4_000,
+            measure_deadline: 10_000,
+            window_ttl: 24 * 60 * 60 * 1000,
             availability_ttl: 30_000
 
   @doc "Builds the config from the defaults, the application environment, and `overrides`."

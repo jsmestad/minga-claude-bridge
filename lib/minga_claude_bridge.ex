@@ -2,7 +2,7 @@ defmodule MingaClaudeBridge do
   @moduledoc """
   Minga extension that serves the Claude models of the user's Claude subscription through the `claude` CLI.
 
-  `init/1` registers `MingaClaudeBridge.Route` as the model route `"claude_bridge"` ("Claude (subscription)") and keeps the returned reporter for `MingaClaudeBridge.Status`. The extension's child is `MingaClaudeBridge.Supervisor`.
+  `init/1` registers `MingaClaudeBridge.Route` as the model route `"claude_bridge"` ("Claude (subscription)", short name "Claude", with a setup row for `/model`) and keeps the returned reporter for `MingaClaudeBridge.Status`. The extension's child is `MingaClaudeBridge.Supervisor`.
 
   The route needs Minga's model-route API (jsmestad/minga#3734). On a Minga without it, `init/1` returns an error instead of crashing the editor.
   """
@@ -13,6 +13,11 @@ defmodule MingaClaudeBridge do
 
   @route_id "claude_bridge"
   @display_name "Claude (subscription)"
+  @short_name "Claude"
+  @setup_action %{
+    label: "Use Claude subscription (Claude Code)",
+    description: "Sign in with the Claude Code CLI. Minga never sees your login."
+  }
   @needs_routes "minga_claude_bridge needs Minga with model routes (jsmestad/minga#3734)"
 
   @impl true
@@ -51,7 +56,13 @@ defmodule MingaClaudeBridge do
 
   defp register(routes) do
     case routes.register(
-           [id: @route_id, module: MingaClaudeBridge.Route, display_name: @display_name],
+           [
+             id: @route_id,
+             module: MingaClaudeBridge.Route,
+             display_name: @display_name,
+             short_name: @short_name,
+             setup_action: @setup_action
+           ],
            []
          ) do
       {:ok, reporter} ->

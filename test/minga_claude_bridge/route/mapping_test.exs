@@ -144,6 +144,12 @@ defmodule MingaClaudeBridge.Route.MappingTest do
       assert Mapping.model(%{"displayName" => "no id"}) == :error
     end
 
+    test "uses a measured context window, with 200k for unmeasured models" do
+      entry = %{"value" => "haiku", "supportedEffortLevels" => ["low"]}
+      assert {:ok, %{context_window: 1_000_000}} = Mapping.model(entry, %{"haiku" => 1_000_000})
+      assert {:ok, %{context_window: 200_000}} = Mapping.model(entry, %{"opus" => 1_000_000})
+    end
+
     test "workdir keys are stable, distinct, and valid" do
       assert Mapping.workdir_key("a") == Mapping.workdir_key("a")
       refute Mapping.workdir_key("a") == Mapping.workdir_key("b")

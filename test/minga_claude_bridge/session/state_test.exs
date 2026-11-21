@@ -104,6 +104,7 @@ defmodule MingaClaudeBridge.Session.StateTest do
   defp in_phase(:interrupting), do: interrupting()
   defp in_phase(:dead), do: dead()
 
+  defp outcome_tag(:ok), do: :ok
   defp outcome_tag({:ok, _state, outcome}) when is_atom(outcome), do: outcome
   defp outcome_tag({:ok, _state, outcome}) when is_tuple(outcome), do: elem(outcome, 0)
   defp outcome_tag({:error, {tag, _detail}}), do: {:error, tag}
@@ -231,6 +232,15 @@ defmodule MingaClaudeBridge.Session.StateTest do
      %{
        starting: {:error, :invalid_phase},
        idle: :dead,
+       streaming: {:error, :invalid_phase},
+       awaiting_tool_results: {:error, :invalid_phase},
+       interrupting: {:error, :invalid_phase},
+       dead: {:error, :invalid_phase}
+     }},
+    {"client control request", &State.control/1,
+     %{
+       starting: {:error, :invalid_phase},
+       idle: :ok,
        streaming: {:error, :invalid_phase},
        awaiting_tool_results: {:error, :invalid_phase},
        interrupting: {:error, :invalid_phase},

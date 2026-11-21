@@ -11,7 +11,7 @@ defmodule MingaClaudeBridge.Launch do
   ## Options
 
     * `:model` - a model alias or id, for example `"sonnet"`.
-    * `:effort` - one of `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`.
+    * `:effort` - one of `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`. An effort also turns on adaptive thinking (`--thinking=adaptive`), as the Agent SDK does for `thinking: {type: "adaptive"}`.
     * `:resume` - a Claude Code session id to continue.
     * `:persist_session` - `false` adds `--no-session-persistence`, for isolated queries that must not leave a session behind. Defaults to `true`.
 
@@ -81,7 +81,7 @@ defmodule MingaClaudeBridge.Launch do
   defp effort(opts) do
     case Keyword.get(opts, :effort) do
       nil -> {:ok, []}
-      effort when effort in @efforts -> {:ok, ["--effort", effort]}
+      effort when effort in @efforts -> {:ok, ["--effort", effort, "--thinking=adaptive"]}
       _other -> {:error, {:invalid_launch, :effort}}
     end
   end

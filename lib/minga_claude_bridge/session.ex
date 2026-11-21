@@ -78,6 +78,7 @@ defmodule MingaClaudeBridge.Session do
           next_id: pos_integer(),
           owner_monitor: reference() | nil,
           ready_waiters: [GenServer.from()],
+          controls: %{String.t() => {GenServer.from(), reference()}},
           seen: History.t(),
           launch: keyword()
         }
@@ -105,7 +106,8 @@ defmodule MingaClaudeBridge.Session do
     :seen,
     :launch,
     next_id: 1,
-    ready_waiters: []
+    ready_waiters: [],
+    controls: %{}
   ]
 
   @doc """
@@ -184,6 +186,21 @@ defmodule MingaClaudeBridge.Session do
   """
   @spec info(GenServer.server()) :: State.info() | nil
   def info(session), do: GenServer.call(session, :info)
+
+  @doc """
+  Sends a client-initiated control request to Claude Code and returns the `response` object of its answer.
+
+  `request` is the request object with a string `"subtype"`, for example `%{"subtype" => "get_usage", "skip_behaviors" => true}`. Only an idle session accepts it. Returns `{:error, {:invalid_phase, tag}}` otherwise, `{:error, {:control_error, message}}` when Claude Code answers with an error, `{:error, :timeout}` after `timeout` milliseconds, `{:error, :session_down}` when the session process is gone, and `{:error, reason}` when the session dies first.
+  """
+  @spec control(GenServer.server(), map(), non_neg_integer()) ::
+          {:ok, map()} | {:error, term()}
+  def control(session, %{"subtype" => subtype} = request, timeout)
+      when is_binary(subtype) and is_integer(timeout) and timeout >= 0 do
+    GenServer.call(session, {:control, request, timeout}, timeout + 1_000)
+  catch
+    :exit, {:timeout, _call} -> {:error, :timeout}
+    :exit, _reason -> {:error, :session_down}
+  end
 
   @doc "Returns the current phase tag, for diagnostics."
   @spec phase(GenServer.server()) :: State.phase_tag()
@@ -285,6 +302,27 @@ defmodule MingaClaudeBridge.Session do
 
   def handle_call(:launch, _from, session), do: {:reply, session.launch, session}
 
+  def handle_call({:control, request, timeout}, from, session) do
+    case State.control(session.state) do
+      :ok ->
+        {id, session} = next_request_id(session)
+        log_frame("control_request #{request["subtype"]}")
+
+        case write(session, [Wire.control(id, request)]) do
+          :ok ->
+            timer = Process.send_after(self(), {:control_timeout, id}, timeout)
+            {:noreply, %{session | controls: Map.put(session.controls, id, {from, timer})}}
+
+          {:error, reason} ->
+            {:reply, {:error, {:transport_error, reason}},
+             kill(session, {:transport_error, reason})}
+        end
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, session}
+    end
+  end
+
   def handle_call(:await_ready, from, session) do
     case session.state.phase do
       {:starting, _queued} ->
@@ -344,6 +382,17 @@ defmodule MingaClaudeBridge.Session do
 
   def handle_info({:timeout, _stale}, session), do: {:noreply, session}
 
+  def handle_info({:control_timeout, id}, session) do
+    case Map.pop(session.controls, id) do
+      {nil, _controls} ->
+        {:noreply, session}
+
+      {{from, _timer}, controls} ->
+        GenServer.reply(from, {:error, :timeout})
+        {:noreply, %{session | controls: controls}}
+    end
+  end
+
   def handle_info({:EXIT, _pid, :normal}, session), do: {:noreply, session}
 
   def handle_info({:EXIT, _pid, reason}, session) do
@@ -392,9 +441,18 @@ defmodule MingaClaudeBridge.Session do
     end
   end
 
-  defp frame(session, %ControlResponse{} = response) do
+  defp frame(session, %ControlResponse{request_id: id, outcome: outcome} = response) do
     log_frame("control_response")
-    startup(session, State.control_response(session.state, response))
+
+    case Map.pop(session.controls, id) do
+      {{from, timer}, controls} ->
+        Process.cancel_timer(timer)
+        GenServer.reply(from, control_reply(outcome))
+        %{session | controls: controls}
+
+      {nil, _controls} ->
+        startup(session, State.control_response(session.state, response))
+    end
   end
 
   defp frame(session, %StreamEvent{} = event), do: stream_event(session, event)
@@ -607,9 +665,18 @@ defmodule MingaClaudeBridge.Session do
   defp monitor_owner(nil), do: nil
   defp monitor_owner(pid) when is_pid(pid), do: Process.monitor(pid)
 
+  defp control_reply({:ok, response}), do: {:ok, response}
+  defp control_reply({:error, message}), do: {:error, {:control_error, message}}
+
   defp die(session, reason) do
     Enum.each(session.ready_waiters, &GenServer.reply(&1, {:error, reason}))
-    session = %{session | ready_waiters: []}
+
+    Enum.each(session.controls, fn {_id, {from, timer}} ->
+      Process.cancel_timer(timer)
+      GenServer.reply(from, {:error, reason})
+    end)
+
+    session = %{session | ready_waiters: [], controls: %{}}
     Logger.warning("claude_bridge: session dead (#{dead_tag(reason)})")
     session = session |> cancel_timer() |> finish_active({:error, reason})
     stop_transport(session, :shutdown)

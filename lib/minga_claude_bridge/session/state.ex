@@ -374,6 +374,13 @@ defmodule MingaClaudeBridge.Session.State do
 
   def startup_timeout(%__MODULE__{phase: phase}), do: invalid(phase)
 
+  @doc """
+  Accepts a client-initiated control request, such as `get_usage` or `get_context_usage`, while no request is running. Returns `{:error, {:invalid_phase, tag}}` in every other phase, so a control request never interleaves with a turn.
+  """
+  @spec control(t()) :: :ok | {:error, invalid_phase()}
+  def control(%__MODULE__{phase: :idle}), do: :ok
+  def control(%__MODULE__{phase: phase}), do: invalid(phase)
+
   @doc "The session stayed idle for the idle timeout. Ends it with `:idle_timeout`."
   @spec idle_timeout(t()) :: {:ok, t(), {:dead, :idle_timeout}} | {:error, invalid_phase()}
   def idle_timeout(%__MODULE__{phase: :idle} = state), do: die(state, :idle_timeout)

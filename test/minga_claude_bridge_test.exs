@@ -26,6 +26,13 @@ defmodule MingaClaudeBridgeTest do
     assert attrs[:id] == "claude_bridge"
     assert attrs[:module] == MingaClaudeBridge.Route
     assert attrs[:display_name] == "Claude (subscription)"
+    assert attrs[:short_name] == "Claude"
+
+    assert attrs[:setup_action] == %{
+             label: "Use Claude subscription (Claude Code)",
+             description: "Sign in with the Claude Code CLI. Minga never sees your login."
+           }
+
     assert :persistent_term.get({MingaClaudeBridge, :reporter}) == :fake_reporter
   end
 
@@ -45,7 +52,7 @@ defmodule MingaClaudeBridgeTest do
         )
       )
 
-    assert [_registry, _sessions, _status] = Supervisor.which_children(supervisor)
+    assert [_status, _tasks, _sessions, _registry] = Supervisor.which_children(supervisor)
 
     {:ok, _session} =
       DynamicSupervisor.start_child(

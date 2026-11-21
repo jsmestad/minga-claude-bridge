@@ -4,7 +4,8 @@ defmodule MingaClaudeBridge.Supervisor do
 
     * `MingaClaudeBridge.Registry` - finds a conversation's session.
     * `MingaClaudeBridge.SessionSupervisor` - a `DynamicSupervisor` for conversation sessions. Sessions are `:temporary`: a session that dies is replaced by the next request for its conversation.
-    * `MingaClaudeBridge.Status` - cached availability and plan limits.
+    * `MingaClaudeBridge.TaskSupervisor` - background measurements of plan usage and context windows. Each owns a probe session that stops with it.
+    * `MingaClaudeBridge.Status` - cached availability, plan usage, and context windows.
 
   Stopping the extension stops this tree. Each session's `terminate/2` stops its transport, which ends the `claude` process.
   """
@@ -22,8 +23,10 @@ defmodule MingaClaudeBridge.Supervisor do
     children = [
       {Registry, keys: :unique, name: MingaClaudeBridge.Registry},
       {DynamicSupervisor, strategy: :one_for_one, name: MingaClaudeBridge.SessionSupervisor},
+      {Task.Supervisor, name: MingaClaudeBridge.TaskSupervisor},
       {MingaClaudeBridge.Status,
-       [name: MingaClaudeBridge.Status] ++ Keyword.get(opts, :status, [])}
+       [name: MingaClaudeBridge.Status, tasks: MingaClaudeBridge.TaskSupervisor] ++
+         Keyword.get(opts, :status, [])}
     ]
 
     Supervisor.init(children, strategy: :rest_for_one)
