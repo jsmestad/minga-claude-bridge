@@ -30,6 +30,21 @@ defmodule MingaClaudeBridge.StatusTest do
     assert Status.plan_windows(status) == []
   end
 
+  test "a failed usage check reports an empty list while no window is known", %{status: status} do
+    :ok = Status.usage_failed(status)
+    assert_receive {:reported_usage, []}
+  end
+
+  test "a failed usage check keeps known windows and reports nothing", %{status: status} do
+    five_hour = %{"utilization" => 30, "resets_at" => nil, "locked_reason" => nil}
+    :ok = Status.put_usage(status, :key, usage(%{"five_hour" => five_hour}))
+    assert_receive {:reported_usage, [%{kind: "five_hour"}]}
+
+    :ok = Status.usage_failed(status)
+    refute_received {:reported_usage, _windows}
+    assert [%{kind: "five_hour", utilization: 0.3}] = Status.plan_windows(status)
+  end
+
   test "the plan named by usage becomes the ready label only for a credential that was ready",
        %{status: status} do
     :ok =

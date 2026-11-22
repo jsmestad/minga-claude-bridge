@@ -31,6 +31,8 @@ defmodule MingaClaudeBridge.Route do
   alias MingaClaudeBridge.Session.Request, as: SessionRequest
   alias MingaClaudeBridge.Wire.RateLimit
 
+  require Logger
+
   @install_remedy "Claude Code is not installed. Install it from https://claude.com/claude-code, then run `claude auth login`."
   @sign_in_remedy "Claude Code is not signed in. Run `claude auth login` in a terminal, then try again."
 
@@ -202,8 +204,17 @@ defmodule MingaClaudeBridge.Route do
       {:ok, session, info} ->
         model_ids = for %{"value" => id} <- info.models, is_binary(id), do: id
         # Usage first and reported at once: it changes between checks, the windows rarely do.
-        usage = Probe.usage(session, deadline)
-        if usage, do: Status.put_usage(config.status, key, usage)
+        case Probe.usage(session, deadline) do
+          {:ok, usage} ->
+            Status.put_usage(config.status, key, usage)
+
+          {:error, reason} ->
+            Logger.warning(
+              "claude_bridge: usage check failed for credential #{key} (#{usage_failure(reason)})"
+            )
+
+            Status.usage_failed(config.status)
+        end
 
         stale = Status.stale_models(config.status, key, model_ids, config.window_ttl)
         windows = Probe.context_windows(session, stale, deadline)
@@ -263,6 +274,12 @@ defmodule MingaClaudeBridge.Route do
     do:
       {:unavailable, :claude_failed,
        "Claude Code failed to start (#{failure_tag(reason)}). Run `claude` in a terminal to see why."}
+
+  # Names why a get_usage check failed, for the log: the control error's message is Claude Code's own text.
+  defp usage_failure({:control_error, message}) when is_binary(message),
+    do: "control error: #{message}"
+
+  defp usage_failure(reason), do: failure_tag(reason)
 
   defp failure_tag({tag, _detail}) when is_atom(tag), do: Atom.to_string(tag)
   defp failure_tag(tag) when is_atom(tag), do: Atom.to_string(tag)
@@ -519,12 +536,19 @@ defmodule MingaClaudeBridge.Route do
   defp credential_env(_none), do: %{}
 
   # The refresh runs beside the stream, under the bridge's task supervisor: a failure or a busy
-  # session only skips this update.
+  # session keeps the known windows, and reports no usage only when none are known.
   defp refresh_usage(config, session, key) do
     Task.Supervisor.start_child(config.tasks, fn ->
       case Session.control(session, %{"subtype" => "get_usage", "skip_behaviors" => true}, 5_000) do
-        {:ok, usage} -> Status.put_usage(config.status, key, usage)
-        {:error, _reason} -> :ok
+        {:ok, usage} ->
+          Status.put_usage(config.status, key, usage)
+
+        {:error, reason} ->
+          Logger.debug(
+            "claude_bridge: usage refresh failed for credential #{key} (#{usage_failure(reason)})"
+          )
+
+          Status.usage_failed(config.status)
       end
     end)
   catch

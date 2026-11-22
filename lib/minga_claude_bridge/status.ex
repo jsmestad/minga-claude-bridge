@@ -89,6 +89,12 @@ defmodule MingaClaudeBridge.Status do
   def put_usage(server, key, answer) when is_map(answer),
     do: call(server, {:put_usage, key, answer}, :ok)
 
+  @doc """
+  Records that a `get_usage` check failed. Known plan windows stay as they are, because the failure is usually transient. When no window is known, an empty list is reported, so Minga shows that usage is unknown instead of waiting for a report.
+  """
+  @spec usage_failed(GenServer.server()) :: :ok
+  def usage_failed(server), do: call(server, :usage_failed, :ok)
+
   @doc "Returns the current plan windows in display order."
   @spec plan_windows(GenServer.server()) :: [MingaAgent.InferenceRoute.PlanWindow.t()]
   def plan_windows(server), do: call(server, :plan_windows, [])
@@ -226,6 +232,11 @@ defmodule MingaClaudeBridge.Status do
     state = %{state | windows: PlanUsage.from_get_usage(answer)}
     report_windows(state)
     {:reply, :ok, adopt_usage_label(state, key, PlanUsage.plan_label(answer))}
+  end
+
+  def handle_call(:usage_failed, _from, state) do
+    if state.windows == %{}, do: report_windows(state)
+    {:reply, :ok, state}
   end
 
   def handle_call(:plan_windows, _from, state),

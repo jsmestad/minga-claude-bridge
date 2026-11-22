@@ -432,6 +432,37 @@ defmodule MingaClaudeBridge.RouteTest do
   end
 
   describe "plan usage" do
+    defp usage_body(utilization) do
+      %{
+        "subscription_type" => "max",
+        "rate_limits" => %{
+          "five_hour" => %{
+            "utilization" => utilization,
+            "resets_at" => nil,
+            "locked_reason" => nil
+          }
+        }
+      }
+    end
+
+    defp usage_answer(id, utilization) do
+      %{
+        "type" => "control_response",
+        "response" => %{
+          "subtype" => "success",
+          "request_id" => id,
+          "response" => usage_body(utilization)
+        }
+      }
+    end
+
+    defp usage_error(id, message) do
+      %{
+        "type" => "control_response",
+        "response" => %{"subtype" => "error", "request_id" => id, "error" => message}
+      }
+    end
+
     test "a completed turn refreshes plan usage with get_usage on the idle session",
          %{config: config} do
       {[{:text, "Hi"}, _usage, {:finish, :stop}], cc, _line} =
@@ -462,6 +493,39 @@ defmodule MingaClaudeBridge.RouteTest do
 
       assert_receive {:reported_usage, :reporter,
                       [%{kind: "five_hour", utilization: 0.42, status: :allowed}]}
+    end
+
+    test "a failed refresh reports no usage while no window is known, then a success reports it",
+         %{config: config} do
+      {_events, cc, _line} = first_turn(config, [user("hello")], text_reply("Hi"))
+      ref = cc.ref
+      assert_receive {:scripted_line, ^ref, line}
+      %{"request_id" => id} = JSON.decode!(line)
+      push(cc, usage_error(id, "usage unavailable"))
+      assert_receive {:reported_usage, :reporter, []}
+
+      {_events, cc, _line} = first_turn(config, [user("again")], text_reply("Hi"))
+      ref = cc.ref
+      assert_receive {:scripted_line, ^ref, line}
+      %{"request_id" => id} = JSON.decode!(line)
+      push(cc, usage_answer(id, 42))
+      assert_receive {:reported_usage, :reporter, [%{kind: "five_hour", utilization: 0.42}]}
+    end
+
+    test "a failed refresh keeps the known windows", %{config: config} do
+      :ok = Status.put_usage(config.status, :other, usage_body(30))
+      assert_receive {:reported_usage, :reporter, [%{kind: "five_hour"}]}
+
+      {_events, cc, _line} = first_turn(config, [user("hello")], text_reply("Hi"))
+      ref = cc.ref
+      assert_receive {:scripted_line, ^ref, line}
+      assert [refresh] = Task.Supervisor.children(config.tasks)
+      monitor = Process.monitor(refresh)
+      push(cc, usage_error(JSON.decode!(line)["request_id"], "usage unavailable"))
+      assert_receive {:DOWN, ^monitor, :process, ^refresh, _reason}
+
+      refute_received {:reported_usage, _reporter, _windows}
+      assert [%{kind: "five_hour", utilization: 0.3}] = Status.plan_windows(config.status)
     end
 
     test "the usage refresh runs under the task supervisor and stops with it", %{config: config} do
