@@ -2,6 +2,8 @@ defmodule MingaClaudeBridge.RoutePortTest do
   # Serialized: these tests spawn real OS processes with Port.open, which hits the BEAM's erl_child_setup EPIPE race under concurrency.
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias MingaAgent.InferenceRoute.Credential
   alias MingaClaudeBridge.{Route, Status}
   alias MingaClaudeBridge.Route.Config
@@ -240,12 +242,79 @@ defmodule MingaClaudeBridge.RoutePortTest do
             )
     end
 
-    test "a Claude Code that never answers keeps defaults and readiness", ctx do
+    test "a Claude Code that never answers keeps defaults and readiness and reports no usage",
+         ctx do
       config = %{config(ctx, %{"FAKE_CLAUDE_CONTROL" => "ignore"}) | measure_deadline: 300}
-      assert {:ready, "Claude Pro"} = Route.availability("claude_bridge", nil, config)
-      await_measured()
-      refute_received {:reported_usage, _reporter, _windows}
+
+      # The suite logs errors only. This module is serialized, so no other test runs while the level is lowered.
+      Logger.configure(level: :warning)
+      on_exit(fn -> Logger.configure(level: :error) end)
+
+      log =
+        capture_log(fn ->
+          assert {:ready, "Claude Pro"} = Route.availability("claude_bridge", nil, config)
+          await_measured()
+        end)
+
+      # Nothing is known yet, so Minga learns that usage is unknown instead of waiting.
+      assert_received {:reported_usage, :reporter, []}
+      key = Route.credential_key(%{})
+
+      assert [_once] =
+               Regex.scan(
+                 ~r/usage check failed for credential #{key} \((timeout|deadline)\)/,
+                 log
+               )
+
       assert Enum.all?(Route.models(status: ctx.status), &(&1.context_window == 200_000))
+    end
+
+    test "a failed usage check keeps known windows, and a later check reports real usage",
+         ctx do
+      assert {:ready, _label} = Route.availability("claude_bridge", nil, config(ctx, %{}))
+      await_measured()
+      assert_received {:reported_usage, :reporter, [_ | _] = known}
+
+      failing = %{config(ctx, %{"FAKE_CLAUDE_CONTROL" => "ignore"}) | measure_deadline: 300}
+
+      capture_log(fn ->
+        assert {:ready, _label} = Route.availability("claude_bridge", nil, failing)
+        await_measured()
+      end)
+
+      refute_received {:reported_usage, _reporter, _windows}
+      assert Status.plan_windows(ctx.status) == known
+
+      rate_limits =
+        JSON.encode!(%{
+          "five_hour" => %{"utilization" => 12, "resets_at" => nil, "locked_reason" => nil}
+        })
+
+      assert {:ready, _label} =
+               Route.availability(
+                 "claude_bridge",
+                 nil,
+                 config(ctx, %{"FAKE_CLAUDE_RATE_LIMITS" => rate_limits})
+               )
+
+      await_measured()
+      assert_received {:reported_usage, :reporter, [%{kind: "five_hour", utilization: 0.12}]}
+    end
+
+    test "a failed first usage check reports no usage, and a later check reports real usage",
+         ctx do
+      failing = %{config(ctx, %{"FAKE_CLAUDE_CONTROL" => "ignore"}) | measure_deadline: 300}
+
+      capture_log(fn ->
+        assert {:ready, _label} = Route.availability("claude_bridge", nil, failing)
+        await_measured()
+      end)
+
+      assert_received {:reported_usage, :reporter, []}
+
+      assert {:ready, _label} = Route.availability("claude_bridge", nil, config(ctx, %{}))
+      await_measured()
+      assert_received {:reported_usage, :reporter, [_ | _]}
     end
   end
 

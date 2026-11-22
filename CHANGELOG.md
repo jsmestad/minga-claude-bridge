@@ -7,6 +7,7 @@ All notable changes to `minga_claude_bridge` are listed here. The format follows
 ### Fixed
 
 - Claude Code no longer looks signed out when Minga starts without `USER` or `LOGNAME`. The bridge fills a missing value from the operating-system user; a value in `routes.claude_bridge.env` still wins.
+- A failed plan usage check no longer leaves Minga showing "Checking plan usage…". When no plan window is known yet, the bridge reports an empty usage; known windows stay until the next successful check. The failure reason is logged once per measurement (#21).
 
 ## [0.1.0] - 2026-11-21
 

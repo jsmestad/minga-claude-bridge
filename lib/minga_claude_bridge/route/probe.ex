@@ -71,17 +71,13 @@ defmodule MingaClaudeBridge.Route.Probe do
   end
 
   @doc """
-  Reads plan usage through `get_usage` (with `skip_behaviors: true`) on an idle probe session, until `deadline` (a `System.monotonic_time(:millisecond)` value). The answer holds the plan's rate-limit windows and `subscription_type`. Returns `nil` on any failure.
+  Reads plan usage through `get_usage` (with `skip_behaviors: true`) on an idle probe session, until `deadline` (a `System.monotonic_time(:millisecond)` value). Returns `{:ok, answer}`, where the answer holds the plan's rate-limit windows and `subscription_type`, or `{:error, reason}`: `:timeout`, `:deadline` when the deadline passed before the request was sent, `{:control_error, message}`, `:session_down`, or another reason from `MingaClaudeBridge.Session.control/3`.
 
   This and `context_windows/3` never run on the availability path; see `MingaClaudeBridge.Route`.
   """
-  @spec usage(GenServer.server(), integer()) :: map() | nil
-  def usage(session, deadline) do
-    case control(session, %{"subtype" => "get_usage", "skip_behaviors" => true}, deadline) do
-      {:ok, answer} -> answer
-      {:error, _reason} -> nil
-    end
-  end
+  @spec usage(GenServer.server(), integer()) :: {:ok, map()} | {:error, term()}
+  def usage(session, deadline),
+    do: control(session, %{"subtype" => "get_usage", "skip_behaviors" => true}, deadline)
 
   @doc """
   Measures `rawMaxTokens` with `get_context_usage` (with `detail: "summary"`, which uses local estimates and calls no API) after `set_model`, for each id in `model_ids`, until `deadline`. Returns model id to tokens; models not measured before the deadline, or that fail, are left out.
